@@ -1,0 +1,70 @@
+{
+  "id": "assistant",
+  "name": "Project Assistant — Minimal",
+  "description": "Smallest possible assistant flow: start → LLM → end. No safety classification, no refusals, no handoff. Use for local development, model-comparison experiments, and any environment where the guard backend is deliberately disabled. Not recommended for anything user-facing.",
+  "nodes": [
+    { "id": "start", "name": "Chat Input", "kind": "start" },
+    {
+      "id": "chat",
+      "name": "LLM Chat",
+      "kind": "action",
+      "action_ref": "redelay/llm-chat",
+      "config": {
+        "profile": "",
+        "providerID": "ovh",
+        "model": "Meta-Llama-3_3-70B-Instruct",
+        "temperature": 0.3,
+        "maxTokens": 1024,
+        "stream": false,
+        "replyStyle": "short",
+        "examplesPolicy": "when_asked",
+        "systemPrompt": "You are the Project Assistant for a Redelay-based application. Help developers understand the framework, debug issues, and find the right docs. Ground every answer in what the project ships today; say \"I don't know\" rather than guess."
+      }
+    },
+    { "id": "end", "name": "Response Output", "kind": "end" }
+  ],
+  "edges": [
+    {
+      "id": "e-start-chat",
+      "from": "start",
+      "to": "chat",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/ChatRequest"
+    },
+    {
+      "id": "e-chat-end",
+      "from": "chat",
+      "to": "end",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/ChatResponse"
+    }
+  ],
+  "meta": {
+    "schemaVersion": 4,
+    "packets": {
+      "ChatRequest": {
+        "type": "object",
+        "description": "Chat completion request with message history.",
+        "required": ["messages"],
+        "properties": {
+          "messages": { "type": "array", "items": { "type": "object" } },
+          "meta":     { "type": "object" }
+        }
+      },
+      "ChatResponse": {
+        "type": "object",
+        "description": "LLM completion with the assistant message and usage metadata.",
+        "properties": {
+          "message":      { "type": "object" },
+          "finishReason": { "type": "string" },
+          "usage":        { "type": "object" }
+        }
+      }
+    },
+    "positions": {
+      "start": { "x":   0, "y":   0 },
+      "chat":  { "x": 320, "y":   0 },
+      "end":   { "x": 640, "y":   0 }
+    }
+  }
+}

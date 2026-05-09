@@ -1,0 +1,60 @@
+{
+  "id": "assistant",
+  "name": "Project Assistant — Echo (dev-only)",
+  "description": "Zero-LLM flow that echoes the user's latest message back as the assistant reply. Use for: CI smoke tests, UI development without burning LLM tokens, verifying SSE/guard/session wiring end-to-end when external providers are rate-limited or down, and customer demos where cost-per-interaction must be zero. Not for production — the model isn't answering anything.",
+  "nodes": [
+    { "id": "start", "name": "Chat Input", "kind": "start" },
+    {
+      "id": "echo",
+      "name": "Echo User Message",
+      "kind": "transform",
+      "action_ref": "core/template-render",
+      "config": {
+        "outputKey": "content",
+        "template": "Echo — no LLM was called.\n\nYou said: {{range .messages}}{{if eq .role \"user\"}}{{.content}}\n{{end}}{{end}}\nThis response was generated entirely by the FlowDSL runtime (start → core/template-render → end). Switch to `default`, `rag`, or any other template to enable an actual LLM."
+      }
+    },
+    { "id": "end", "name": "Response Output", "kind": "end" }
+  ],
+  "edges": [
+    {
+      "id": "e-start-echo",
+      "from": "start",
+      "to": "echo",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/ChatRequest",
+      "description": "User message goes straight to the echo transform — no safety classification, no retrieval, no LLM."
+    },
+    {
+      "id": "e-echo-end",
+      "from": "echo",
+      "to": "end",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/ChatResponse"
+    }
+  ],
+  "meta": {
+    "schemaVersion": 4,
+    "packets": {
+      "ChatRequest": {
+        "type": "object",
+        "required": ["messages"],
+        "properties": {
+          "messages": { "type": "array", "items": { "type": "object" } },
+          "meta":     { "type": "object" }
+        }
+      },
+      "ChatResponse": {
+        "type": "object",
+        "properties": {
+          "content": { "type": "string" }
+        }
+      }
+    },
+    "positions": {
+      "start": { "x":   0, "y": 0 },
+      "echo":  { "x": 320, "y": 0 },
+      "end":   { "x": 640, "y": 0 }
+    }
+  }
+}

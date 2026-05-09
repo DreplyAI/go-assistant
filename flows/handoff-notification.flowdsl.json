@@ -1,0 +1,49 @@
+{
+  "id": "assistant-handoff-notification",
+  "name": "Assistant handoff → email",
+  "description": "Subscribes to the assistant.handoff_requested event and emits an email.send event so the configured inbox gets notified. Two-hop event chain: a separate email delivery flow (or go-module-email's built-in consumer) picks up email.send and actually sends the message. Customise the recipient, subject, and body in the Studio; the event shape is the contract.",
+  "nodes": [
+    {
+      "id": "src",
+      "name": "On handoff_requested",
+      "kind": "start",
+      "action_ref": "redelay/event-source",
+      "config": {
+        "eventName": "assistant.handoff_requested",
+        "groupID":   "assistant-handoff-notifier"
+      }
+    },
+    {
+      "id": "emit_email",
+      "name": "Emit email.send",
+      "kind": "action",
+      "action_ref": "redelay/emit-event",
+      "config": {
+        "eventName": "email.send",
+        "mapping": {
+          "to":       "['ops@example.com']",
+          "subject":  "New assistant handoff — {{.payload.priority}}",
+          "template": "assistant-handoff",
+          "data":     "{{.payload}}"
+        },
+        "actorType": "system"
+      }
+    },
+    {
+      "id": "done",
+      "name": "Dispatched",
+      "kind": "end"
+    }
+  ],
+  "edges": [
+    {"id": "e1", "from": "src",        "to": "emit_email", "delivery_mode": "durable"},
+    {"id": "e2", "from": "emit_email", "to": "done",       "delivery_mode": "direct"}
+  ],
+  "meta": {
+    "positions": {
+      "src":        {"x":   0, "y": 0},
+      "emit_email": {"x": 380, "y": 0},
+      "done":       {"x": 740, "y": 0}
+    }
+  }
+}

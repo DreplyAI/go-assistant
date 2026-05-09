@@ -1,0 +1,146 @@
+id: assistant-flowdsl
+name: Assistant — FlowDSL Nodes
+description: FlowDSL nodes owned by the assistant module. Exposes a human-handoff request node and a RAG context-stitching node that grounds LLM answers in project documentation via the search module.
+version: "0.1.0"
+icon: lucide:user-check
+depends_on:
+  - assistant
+
+flowdsl_nodes:
+  - id: redelay/assistant-handoff-request
+    name: Request Human Handoff
+    summary: Persist a handoff request for the current chat session, snapshot the transcript, and publish assistant.handoff_requested for the notification flow to pick up.
+    kind: action
+    language: go
+    protocols: [proc]
+    settings_schema:
+      type: object
+      properties:
+        defaultPriority:
+          type: string
+          title: Default Priority
+          description: Priority to apply when the incoming packet does not carry one. `normal` is a safe baseline; switch to `high` only if every conversation on this branch should page an operator.
+          enum: [low, normal, high, urgent]
+          default: normal
+        defaultReason:
+          type: string
+          title: Default Reason
+          description: Fallback reason text written to the admin inbox when the packet has no explicit reason field. Keep it short — operators skim this in a list.
+          default: "User requested human assistance"
+    inputs:
+      - name: Request
+        description: Incoming handoff packet. `sessionId` and `email` are required; everything else has a setting-level default.
+        schema:
+          type: object
+          required: [sessionId, email]
+          properties:
+            sessionId:
+              type: string
+              description: Assistant chat session id. Must match an existing chat for the transcript to be captured; if missing the handoff still persists without a transcript.
+            email:
+              type: string
+              description: Contact email for the human operator to reply to.
+            phone:
+              type: string
+              description: Optional secondary contact channel.
+            reason:
+              type: string
+              description: Free-form reason the user wants a human. Overrides defaultReason when present.
+            priority:
+              type: string
+              description: Explicit priority — low | normal | high | urgent. Overrides defaultPriority when present.
+              enum: [low, normal, high, urgent]
+            userId:
+              type: string
+              description: Optional authenticated user id (Mongo ObjectID hex). Anonymous callers leave it blank.
+    outputs:
+      - name: Handoff
+        description: The persisted request. `duplicate` is true when an open handoff already exists for the same session — no new record was created.
+        schema:
+          type: object
+          properties:
+            handoffId:
+              type: string
+              description: Mongo ObjectID hex of the persisted handoff record.
+            status:
+              type: string
+              description: Status at creation time, always "pending" for fresh records.
+            duplicate:
+              type: boolean
+              description: True when the service de-duplicated against an existing pending request for the same session.
+      - name: Error
+        description: Validation failure or persistence error. Use this branch to notify the user their handoff request could not be filed.
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+
+  - id: redelay/assistant-rag-context
+    name: RAG — Context Stitch
+    summary: Search project documentation for chunks relevant to the last user message and prepend them as a system message, so the downstream LLM answers from docs instead of its training priors. Pairs with the search module (Qdrant + bge-m3). Pass-through on empty results so the flow degrades gracefully when the index is cold or the backend is down.
+    kind: action
+    language: go
+    protocols: [proc]
+    settings_schema:
+      type: object
+      x-ui:
+        order: [index, topK, queryKey, preamble, failOnSearchError]
+      properties:
+        index:
+          type: string
+          title: Docs index
+          x-order: 0
+          description: Search index to query (prefix is applied by the search service). Populate with the assistant-ingest-docs CLI before first use.
+          default: redelay_docs
+        topK:
+          type: integer
+          title: Top K
+          x-order: 1
+          description: Maximum number of chunks to stitch into the system prompt. Higher values give more context but cost more input tokens and slow the downstream chat call. 3 covers most factual project-docs questions; raise to 5–8 for research-style flows that need broader context.
+          default: 3
+          minimum: 1
+          maximum: 20
+        queryKey:
+          type: string
+          title: Query key override
+          x-order: 2
+          description: "Optional: key on the input packet carrying a pre-computed search query string. Used when an upstream node (e.g. a small llm-chat that rewrites the user's question) has already produced a better search phrase. When empty, the node falls back to extracting the last user message from `messages[]`."
+        preamble:
+          type: string
+          title: Preamble
+          x-order: 3
+          description: Lead-in text placed above the retrieved chunks in the system message. Leave blank to use the built-in default which biases the model toward citing the excerpts and refusing to guess.
+        failOnSearchError:
+          type: boolean
+          title: Fail run on search error
+          x-order: 4
+          description: When true, any search failure (backend down, index missing, embedding quota) fails the run. Default false — the node passes through and the LLM answers without RAG context, keeping the UX alive during infra hiccups.
+          default: false
+    inputs:
+      - name: Chat
+        description: Incoming chat packet. Must carry `messages[]` with at least one role=user entry.
+        schema:
+          type: object
+          required: [messages]
+          properties:
+            messages:
+              type: array
+              items:
+                type: object
+    outputs:
+      - name: Grounded
+        description: "Original packet with a fresh system message (role=system) prepended to `messages`, plus a `sources[]` array listing the retrieved chunks (id, path, title, url, score) for citation rendering. When search is unavailable, `sources` is empty and `ragSkipped` records the reason."
+        schema:
+          type: object
+          properties:
+            messages:
+              type: array
+              items:
+                type: object
+            sources:
+              type: array
+              items:
+                type: object
+            ragSkipped:
+              type: string

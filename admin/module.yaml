@@ -1,0 +1,19 @@
+id: assistant-admin
+name: Assistant — Admin
+icon: lucide:messages-square
+description: |
+  Admin-only HTTP endpoints for the assistant module. Blank-import
+  this package only in admin-api so cost / chat / handoff listings
+  never reach the public backend surface.
+
+  Endpoints:
+    - GET   /admin/assistant/chats             list chats (filters on user, flow, variant)
+    - GET   /admin/assistant/chats/{id}        single chat by id
+    - GET   /admin/assistant/handoffs          list handoffs (default: status=pending)
+    - GET   /admin/assistant/handoffs/{id}     single handoff
+    - PATCH /admin/assistant/handoffs/{id}     update status + notes
+
+  All routes require `admin:access` permission.
+version: "0.1.0"
+depends_on:
+  - assistant

@@ -1,0 +1,10 @@
+name: assistant
+id: assistant
+description: |
+  Project-local AI assistant. Exposes a chat SSE endpoint backed by a FlowDSL
+  flow that is created, versioned, and published via the flowexec module.
+  On first startup the module seeds a default "assistant" flow from its
+  embedded default.flowdsl.json; subsequent edits through the flowexec API
+  override that seed — the project owns the live copy.
+version: 0.1.0
+runtime: go

@@ -1,0 +1,20 @@
+# Build artefacts
+*.exe
+*.test
+*.out
+/bin/
+/dist/
+
+# Go workspace files (vendor uses go modules from go-framework et al.)
+vendor/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Local env / secrets
+.env
+.env.*
+!.env.example

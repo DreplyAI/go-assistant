@@ -1,0 +1,174 @@
+{
+  "id": "assistant",
+  "name": "Project Assistant — Defense in Depth (Multi-Guard)",
+  "description": "Chains TWO safety classifiers before the LLM and TWO after, demonstrating layered moderation. The first guard is the usual Qwen3Guard (broad unsafe-content detection). The second guard runs with role=user AND stricter onError policy, catching edge cases the first misses and failing closed when either classifier errors. Same pattern on the output side. Use this when a single classifier's recall isn't good enough for your risk tolerance — regulated industries, child-facing products, high-liability verticals. Cost: ~2x guard latency + 2x guard-model tokens per turn.",
+  "nodes": [
+    { "id": "start", "name": "Chat Input", "kind": "start" },
+    {
+      "id": "guard-in-1",
+      "name": "Guard 1 — User Input (broad)",
+      "kind": "router",
+      "action_ref": "redelay/llm-guard",
+      "config": { "guardID": "qwen3guard", "role": "user", "onError": "allow" }
+    },
+    {
+      "id": "guard-in-2",
+      "name": "Guard 2 — User Input (strict)",
+      "kind": "router",
+      "action_ref": "redelay/llm-guard",
+      "config": { "guardID": "qwen3guard", "role": "user", "onError": "block" }
+    },
+    {
+      "id": "chat",
+      "name": "LLM Chat",
+      "kind": "action",
+      "action_ref": "redelay/llm-chat",
+      "config": {
+        "profile": "",
+        "providerID": "ovh",
+        "model": "Meta-Llama-3_3-70B-Instruct",
+        "temperature": 0.3,
+        "maxTokens": 1024,
+        "stream": false,
+        "replyStyle": "short",
+        "examplesPolicy": "when_asked",
+        "systemPrompt": "You are the Project Assistant. Help users with the Redelay framework, debug issues, and find the right docs. Ground answers in what the project ships today; say 'I don't know' rather than guess."
+      }
+    },
+    {
+      "id": "guard-out-1",
+      "name": "Guard 1 — Assistant Output (broad)",
+      "kind": "router",
+      "action_ref": "redelay/llm-guard",
+      "config": { "guardID": "qwen3guard", "role": "assistant", "onError": "allow" }
+    },
+    {
+      "id": "guard-out-2",
+      "name": "Guard 2 — Assistant Output (strict)",
+      "kind": "router",
+      "action_ref": "redelay/llm-guard",
+      "config": { "guardID": "qwen3guard", "role": "assistant", "onError": "block" }
+    },
+    {
+      "id": "refusal",
+      "name": "Refusal",
+      "kind": "transform",
+      "action_ref": "core/template-render",
+      "config": {
+        "template": "I'm not able to help with that request. Your message was flagged by our safety classifiers and has been logged for review.",
+        "outputKey": "content"
+      }
+    },
+    { "id": "end",      "name": "Response Output",      "kind": "end" },
+    { "id": "rejected", "name": "Rejected — Guard Block", "kind": "end" }
+  ],
+  "edges": [
+    {
+      "id": "e-start-guard1",
+      "from": "start", "to": "guard-in-1",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/ChatRequest"
+    },
+    {
+      "id": "e-guard1-guard2-allow",
+      "from": "guard-in-1", "to": "guard-in-2",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/ChatRequest",
+      "condition": "output.route == \"Allow\""
+    },
+    {
+      "id": "e-guard1-guard2-flag",
+      "from": "guard-in-1", "to": "guard-in-2",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/ChatRequest",
+      "condition": "output.route == \"Flag\""
+    },
+    {
+      "id": "e-guard1-refuse",
+      "from": "guard-in-1", "to": "refusal",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/GuardRejection",
+      "condition": "output.route == \"Block\""
+    },
+    {
+      "id": "e-guard2-chat-allow",
+      "from": "guard-in-2", "to": "chat",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/ChatRequest",
+      "condition": "output.route == \"Allow\""
+    },
+    {
+      "id": "e-guard2-chat-flag",
+      "from": "guard-in-2", "to": "chat",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/ChatRequest",
+      "condition": "output.route == \"Flag\""
+    },
+    {
+      "id": "e-guard2-refuse",
+      "from": "guard-in-2", "to": "refusal",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/GuardRejection",
+      "condition": "output.route == \"Block\""
+    },
+    {
+      "id": "e-chat-guardout1",
+      "from": "chat", "to": "guard-out-1",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/ChatResponse"
+    },
+    {
+      "id": "e-guardout1-guardout2-allow",
+      "from": "guard-out-1", "to": "guard-out-2",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/ChatResponse",
+      "condition": "output.route != \"Block\""
+    },
+    {
+      "id": "e-guardout1-refuse",
+      "from": "guard-out-1", "to": "refusal",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/GuardRejection",
+      "condition": "output.route == \"Block\""
+    },
+    {
+      "id": "e-guardout2-end",
+      "from": "guard-out-2", "to": "end",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/ChatResponse",
+      "condition": "output.route != \"Block\""
+    },
+    {
+      "id": "e-guardout2-refuse",
+      "from": "guard-out-2", "to": "refusal",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/GuardRejection",
+      "condition": "output.route == \"Block\""
+    },
+    {
+      "id": "e-refusal-rejected",
+      "from": "refusal", "to": "rejected",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/GuardRejection"
+    }
+  ],
+  "meta": {
+    "schemaVersion": 4,
+    "packets": {
+      "ChatRequest":  { "type": "object", "required": ["messages"], "properties": { "messages": { "type": "array", "items": { "type": "object" } }, "meta": { "type": "object" } } },
+      "ChatResponse": { "type": "object", "properties": { "message": { "type": "object" }, "finishReason": { "type": "string" }, "usage": { "type": "object" } } },
+      "GuardRejection": { "type": "object", "properties": { "decision": { "type": "object" }, "content": { "type": "string" } } }
+    },
+    "positions": {
+      "start":       { "x":    0, "y":    0 },
+      "guard-in-1":  { "x":  240, "y":    0 },
+      "guard-in-2":  { "x":  480, "y":    0 },
+      "chat":        { "x":  720, "y":  -60 },
+      "guard-out-1": { "x":  960, "y":  -60 },
+      "guard-out-2": { "x": 1200, "y":  -60 },
+      "refusal":     { "x":  720, "y":  140 },
+      "end":         { "x": 1440, "y":    0 },
+      "rejected":    { "x":  960, "y":  140 }
+    }
+  }
+}

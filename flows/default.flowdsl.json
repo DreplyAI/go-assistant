@@ -1,0 +1,267 @@
+{
+  "id": "assistant",
+  "name": "Project Assistant",
+  "description": "Default AI assistant flow. The start packet carries { messages, meta } from the assistant HTTP handler. Edge conditions on `meta.intent` branch between a chat reply and a human-handoff request. Input is classified by guard-in; unsafe messages short-circuit to a rejection end. The assistant's reply is classified by guard-out before reaching the client. Customize LLM and guard settings via the FlowDSL Studio — no code changes needed.",
+  "nodes": [
+    {
+      "id": "start",
+      "name": "Chat Input",
+      "kind": "start"
+    },
+    {
+      "id": "guard-in",
+      "name": "Guard — User Input",
+      "kind": "router",
+      "action_ref": "redelay/llm-guard",
+      "config": {
+        "guardID": "qwen3guard",
+        "role": "user",
+        "onError": "allow"
+      }
+    },
+    {
+      "id": "chat",
+      "name": "LLM Chat",
+      "kind": "action",
+      "action_ref": "redelay/llm-chat",
+      "config": {
+        "profile": "",
+        "providerID": "ovh",
+        "model": "Meta-Llama-3_3-70B-Instruct",
+        "temperature": 0.3,
+        "maxTokens": 1024,
+        "stream": false,
+        "replyStyle": "short",
+        "examplesPolicy": "when_asked",
+        "systemPrompt": "You are the Project Assistant for a Redelay-based application. Help developers understand the framework, debug issues, and find the right docs. Ground every answer in what the project ships today; say \"I don't know\" rather than guess."
+      }
+    },
+    {
+      "id": "guard-out",
+      "name": "Guard — Assistant Output",
+      "kind": "router",
+      "action_ref": "redelay/llm-guard",
+      "config": {
+        "guardID": "qwen3guard",
+        "role": "assistant",
+        "onError": "allow"
+      }
+    },
+    {
+      "id": "handoff",
+      "name": "Request Human Handoff",
+      "kind": "action",
+      "action_ref": "redelay/assistant-handoff-request",
+      "config": {
+        "defaultPriority": "normal",
+        "defaultReason": "User requested human assistance"
+      }
+    },
+    {
+      "id": "refusal-in",
+      "name": "Refusal — User Input Blocked",
+      "kind": "transform",
+      "action_ref": "core/template-render",
+      "config": {
+        "template": "I'm not able to help with that request. Your message was flagged by our safety classifier and has been forwarded to our team for review. If you believe this is a mistake, please rephrase your question or ask for a human via the 'Talk to a human' button.",
+        "outputKey": "content"
+      }
+    },
+    {
+      "id": "refusal-out",
+      "name": "Refusal — Assistant Output Blocked",
+      "kind": "transform",
+      "action_ref": "core/template-render",
+      "config": {
+        "template": "I started to answer but pulled the response back — our safety classifier flagged my draft as potentially unsafe. Try rephrasing your question, or ask for a human via the 'Talk to a human' button and our team will follow up.",
+        "outputKey": "content"
+      }
+    },
+    {
+      "id": "end",
+      "name": "Response Output",
+      "kind": "end"
+    },
+    {
+      "id": "rejected",
+      "name": "Rejected — Guard Block",
+      "kind": "end"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-start-handoff",
+      "from": "start",
+      "to": "handoff",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/HandoffRequest",
+      "condition": "input.meta.intent == \"handoff\"",
+      "description": "Branch when the UI passes intent=handoff (e.g. user clicked 'Talk to a human'). Persists a HandoffRequest and emits assistant.handoff_requested for the notification flow."
+    },
+    {
+      "id": "e-start-guard-in",
+      "from": "start",
+      "to": "guard-in",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/ChatRequest",
+      "description": "Default path — user message goes to the safety classifier before the LLM."
+    },
+    {
+      "id": "e-guard-in-chat-allow",
+      "from": "guard-in",
+      "to": "chat",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/ChatRequest",
+      "condition": "output.route == \"Allow\"",
+      "description": "Safe input — forward to LLM."
+    },
+    {
+      "id": "e-guard-in-chat-flag",
+      "from": "guard-in",
+      "to": "chat",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/ChatRequest",
+      "condition": "output.route == \"Flag\"",
+      "description": "Flagged but allowed — pass through for now; operators can tighten via admin settings."
+    },
+    {
+      "id": "e-guard-in-refusal",
+      "from": "guard-in",
+      "to": "refusal-in",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/GuardRejection",
+      "condition": "output.route == \"Block\"",
+      "description": "Unsafe user input — route through the refusal transform so the client receives a configurable explanation instead of silence."
+    },
+    {
+      "id": "e-refusal-in-rejected",
+      "from": "refusal-in",
+      "to": "rejected",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/GuardRejection",
+      "description": "Carry the rendered refusal content into the rejection terminal — this is what the SSE pump streams to the client."
+    },
+    {
+      "id": "e-chat-guard-out",
+      "from": "chat",
+      "to": "guard-out",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/ChatResponse"
+    },
+    {
+      "id": "e-guard-out-end-allow",
+      "from": "guard-out",
+      "to": "end",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/ChatResponse",
+      "condition": "output.route != \"Block\"",
+      "description": "Safe or flagged model reply — deliver to the client."
+    },
+    {
+      "id": "e-guard-out-refusal",
+      "from": "guard-out",
+      "to": "refusal-out",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/GuardRejection",
+      "condition": "output.route == \"Block\"",
+      "description": "Unsafe model output — suppress it and emit a configurable refusal instead."
+    },
+    {
+      "id": "e-refusal-out-rejected",
+      "from": "refusal-out",
+      "to": "rejected",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/GuardRejection",
+      "description": "Carry the rendered refusal content into the rejection terminal."
+    },
+    {
+      "id": "e-handoff-end",
+      "from": "handoff",
+      "to": "end",
+      "delivery_mode": "direct",
+      "packet": "#/components/packets/HandoffResponse"
+    }
+  ],
+  "meta": {
+    "schemaVersion": 4,
+    "packets": {
+      "ChatRequest": {
+        "type": "object",
+        "description": "Chat completion request with message history and optional tool definitions.",
+        "required": ["messages"],
+        "properties": {
+          "messages": {
+            "type": "array",
+            "description": "Conversation history. Each item has role (system/user/assistant/tool) and content.",
+            "items": { "type": "object" }
+          },
+          "meta": {
+            "type": "object",
+            "description": "Correlation + routing metadata — session_id, user_id, intent ('chat'|'handoff').",
+            "properties": {
+              "session_id": { "type": "string" },
+              "user_id":    { "type": "string" },
+              "intent":     { "type": "string", "enum": ["chat", "handoff"] }
+            }
+          }
+        }
+      },
+      "ChatResponse": {
+        "type": "object",
+        "description": "LLM chat completion response with the assistant message and usage metadata.",
+        "properties": {
+          "message":      { "type": "object" },
+          "finishReason": { "type": "string" },
+          "usage":        { "type": "object" }
+        }
+      },
+      "HandoffRequest": {
+        "type": "object",
+        "description": "Incoming handoff packet — the shape expected by redelay/assistant-handoff-request. `sessionId` and `email` are required; the assistant HTTP handler (POST /assistant/handoff) forwards the request body into the flow with `meta.intent=handoff`.",
+        "required": ["sessionId", "email"],
+        "properties": {
+          "sessionId": { "type": "string" },
+          "email":     { "type": "string" },
+          "phone":     { "type": "string" },
+          "reason":    { "type": "string" },
+          "priority":  { "type": "string", "enum": ["low", "normal", "high", "urgent"] },
+          "userId":    { "type": "string" },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "intent": { "type": "string", "enum": ["handoff"] }
+            }
+          }
+        }
+      },
+      "HandoffResponse": {
+        "type": "object",
+        "description": "Result of a handoff request — the persisted record id, status at creation time, and a duplicate flag set when the service de-duplicated against an open request for the same session.",
+        "properties": {
+          "handoffId": { "type": "string" },
+          "status":    { "type": "string" },
+          "duplicate": { "type": "boolean" }
+        }
+      },
+      "GuardRejection": {
+        "type": "object",
+        "description": "Guard-driven rejection envelope. `decision.categories` carries the policy tags; UI should render a generic refusal message without leaking raw categories to end users.",
+        "properties": {
+          "decision": { "type": "object" },
+          "content":  { "type": "string" }
+        }
+      }
+    },
+    "positions": {
+      "start":       { "x":    0, "y":    0 },
+      "guard-in":    { "x":  280, "y":    0 },
+      "chat":        { "x":  560, "y":  -60 },
+      "guard-out":   { "x":  840, "y":  -60 },
+      "handoff":     { "x":  420, "y":  240 },
+      "refusal-in":  { "x":  560, "y":  120 },
+      "refusal-out": { "x":  840, "y":  120 },
+      "end":         { "x": 1120, "y":    0 },
+      "rejected":    { "x": 1120, "y":  120 }
+    }
+  }
+}

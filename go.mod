@@ -2,26 +2,6 @@ module github.com/dreplyai/go-assistant
 
 go 1.25.0
 
-// Replace directives point at the sibling redelay clones during
-// development. When go-assistant is published as a tagged release,
-// downstream consumers (redelay/backend, FlowDSL/api) will pin via
-// `require github.com/dreplyai/go-assistant v0.x.y` with no replace.
-// The replaces here only resolve the kernel's own build dependencies
-// against the in-flight redelay packages; they do not propagate to
-// downstream consumers.
-replace (
-	github.com/flowdsl/flowdsl-go => ../flowdsl/flowdsl-go
-	github.com/redelay/go-ai => ../redelay/go-ai
-	github.com/redelay/go-events => ../redelay/go-events
-	github.com/redelay/go-flowdsl => ../redelay/go-flowdsl
-	github.com/redelay/go-flowdsl/flowexec/module => ../redelay/go-flowdsl/flowexec/module
-	github.com/redelay/go-flowdsl/flowexec/storage-mongo => ../redelay/go-flowdsl/flowexec/storage-mongo
-	github.com/redelay/go-flowdsl/nodes => ../redelay/go-flowdsl/nodes
-	github.com/redelay/go-flowdsl/nodes/core => ../redelay/go-flowdsl/nodes/core
-	github.com/redelay/go-framework => ../redelay/go-framework
-	github.com/redelay/go-modules => ../redelay/go-modules
-)
-
 require (
 	github.com/dreplyai/go-assistant-core v0.0.0-00010101000000-000000000000
 	github.com/google/uuid v1.6.0
@@ -29,9 +9,9 @@ require (
 	github.com/redelay/go-events v0.2.0
 	github.com/redelay/go-flowdsl v0.1.13
 	github.com/redelay/go-flowdsl/flowexec/module v0.2.17
-	github.com/redelay/go-flowdsl/nodes/core v0.0.0-00010101000000-000000000000
+	github.com/redelay/go-flowdsl/nodes/core v0.1.0
 	github.com/redelay/go-framework v0.2.0
-	github.com/redelay/go-modules v0.0.0-00010101000000-000000000000
+	github.com/redelay/go-modules v0.5.0
 	go.mongodb.org/mongo-driver v1.17.9
 	go.uber.org/zap v1.27.1
 	gopkg.in/yaml.v3 v3.0.1

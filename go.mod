@@ -25,12 +25,12 @@ replace (
 require (
 	github.com/dreplyai/go-assistant-core v0.0.0-00010101000000-000000000000
 	github.com/google/uuid v1.6.0
-	github.com/redelay/go-ai v0.1.0
-	github.com/redelay/go-events v0.0.0-00010101000000-000000000000
+	github.com/redelay/go-ai v0.2.1
+	github.com/redelay/go-events v0.2.0
 	github.com/redelay/go-flowdsl v0.1.13
-	github.com/redelay/go-flowdsl/flowexec/module v0.0.0-00010101000000-000000000000
+	github.com/redelay/go-flowdsl/flowexec/module v0.2.17
 	github.com/redelay/go-flowdsl/nodes/core v0.0.0-00010101000000-000000000000
-	github.com/redelay/go-framework v0.1.0
+	github.com/redelay/go-framework v0.2.0
 	github.com/redelay/go-modules v0.0.0-00010101000000-000000000000
 	go.mongodb.org/mongo-driver v1.17.9
 	go.uber.org/zap v1.27.1

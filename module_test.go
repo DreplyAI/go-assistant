@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dreplyai/go-assistant-core/flowrun"
 	flowexecmod "github.com/redelay/go-flowdsl/flowexec/module"
 	flowstore "github.com/redelay/go-flowdsl/flowexec/store"
 	flowcore "github.com/redelay/go-flowdsl/nodes/core"
@@ -355,9 +356,9 @@ func TestExtractContentShapes(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := extractContent(tc.payload)
+			got := flowrun.ExtractContent(tc.payload)
 			if got != tc.want {
-				t.Errorf("extractContent=%q want %q", got, tc.want)
+				t.Errorf("ExtractContent=%q want %q", got, tc.want)
 			}
 		})
 	}

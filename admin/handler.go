@@ -7,12 +7,11 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
+	"github.com/dreplyai/go-assistant-core/adminkit"
 	"github.com/dreplyai/go-assistant"
 	"github.com/dreplyai/go-assistant/chats"
 	"github.com/dreplyai/go-assistant/handoff"
-	"github.com/redelay/go-ai/ledger"
 	"github.com/redelay/go-framework/modules"
 	"github.com/redelay/go-framework/modules/auth"
 	"github.com/redelay/go-framework/server/httputil"
@@ -163,75 +162,19 @@ func (m *Module) lookupFlowName(ctx context.Context, flowID string) string {
 	return f.Name
 }
 
-// aggregateUsage rolls up LLM usage rows for every run in the chat
-// transcript. Returns a zero-valued summary (not nil) when the ledger
-// module isn't bound, so the frontend renders a "$0.00 / 0 tokens"
-// card instead of hiding usage information entirely.
-//
-// Correlation strategy (belt + suspenders): first try the chat's
-// explicit runIds via the ledger's RunIDs IN-filter. If that returns
-// nothing — which happens today because the flowexec-assigned RunID
-// (`run.<uuid>`) is different from the engine's ExecRecord.ID
-// (`exec.flow.*`) that the ledger middleware currently stamps — fall
-// back to a flow-id + time-window scan covering (startedAt, lastAt)
-// of the chat. The fallback is approximate (picks up concurrent runs
-// on the same flow within the window) but produces useful numbers
-// until we unify the ID vocabulary at the engine level.
+// aggregateUsage rolls up LLM usage for every run in the chat via the shared
+// adminkit roll-up: exact runIds first, then a padded flow + time-window
+// fallback. Returns a non-nil zero summary when the ledger isn't bound.
 func (m *Module) aggregateUsage(ctx context.Context, c *chats.Chat) ChatUsageSummary {
-	zero := ChatUsageSummary{ByModel: []ledger.UsageBreakdown{}}
-	if m.ledger == nil || c == nil {
-		return zero
+	if c == nil || m.ledger == nil {
+		return adminkit.ZeroUsage()
 	}
-
-	query := func(q ledger.UsageQuery) (ChatUsageSummary, bool) {
-		totals, err := m.ledger.Totals(ctx, q)
-		if err != nil {
-			if logger := m.asst.Logger(); logger != nil {
-				logger.Warn("assistant-admin: usage totals query failed", zap.Error(err))
-			}
-			return zero, false
-		}
-		if totals.Calls == 0 {
-			return zero, false
-		}
-		byModel, err := m.ledger.BreakdownBy(ctx, q, "model")
-		if err != nil {
-			if logger := m.asst.Logger(); logger != nil {
-				logger.Warn("assistant-admin: usage breakdown query failed", zap.Error(err))
-			}
-			byModel = nil
-		}
-		if byModel == nil {
-			byModel = []ledger.UsageBreakdown{}
-		}
-		return ChatUsageSummary{Total: totals, ByModel: byModel}, true
-	}
-
-	// Attempt 1 — exact correlation via runIds.
-	if len(c.RunIDs) > 0 {
-		if s, ok := query(ledger.UsageQuery{FlowID: c.FlowID, RunIDs: c.RunIDs}); ok {
-			return s
-		}
-	}
-
-	// Attempt 2 — time-window scan on the chat's flow. Pad the window
-	// on both ends so we catch rows recorded slightly after the
-	// assistant message landed (embed row timestamp is typically
-	// sub-second before the chat update, chat row typically updates
-	// a few ms after the final node.done emit). One-second pad is
-	// stingy but sufficient on local dev; bump if you see boundary
-	// gaps in production.
-	if !c.StartedAt.IsZero() && !c.LastAt.IsZero() && c.FlowID != "" {
-		const pad = 2 * time.Second
-		if s, ok := query(ledger.UsageQuery{
-			FlowID: c.FlowID,
-			From:   c.StartedAt.Add(-pad),
-			To:     c.LastAt.Add(pad),
-		}); ok {
-			return s
-		}
-	}
-	return zero
+	return adminkit.Aggregate(ctx, m.ledger, adminkit.UsageWindow{
+		FlowID: c.FlowID,
+		RunIDs: c.RunIDs,
+		From:   c.StartedAt,
+		To:     c.LastAt,
+	})
 }
 
 func (m *Module) handleListHandoffs(w http.ResponseWriter, r *http.Request) {

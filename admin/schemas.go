@@ -3,9 +3,9 @@ package admin
 import (
 	"encoding/json"
 
+	"github.com/dreplyai/go-assistant-core/adminkit"
 	"github.com/dreplyai/go-assistant/chats"
 	"github.com/dreplyai/go-assistant/handoff"
-	"github.com/redelay/go-ai/ledger"
 )
 
 // ChatListResponse is the GET /admin/assistant/chats body.
@@ -84,12 +84,7 @@ func (r ChatDetailResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(m)
 }
 
-// ChatUsageSummary is the per-chat usage aggregate. `Total` rolls up
-// every runId into one row (sum tokens + cost); `ByModel` lists the
-// same rows split per model so the UI can show how much came from
-// which provider (embed via bge-m3, chat via Llama, guard via
-// Qwen3Guard, etc.).
-type ChatUsageSummary struct {
-	Total   ledger.UsageTotal       `json:"total"`
-	ByModel []ledger.UsageBreakdown `json:"byModel"`
-}
+// ChatUsageSummary is the per-chat usage aggregate — the shared adminkit roll-up
+// (Total across every runId + per-model breakdown). Aliased so the wire shape
+// and existing clients stay unchanged.
+type ChatUsageSummary = adminkit.UsageSummary

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/dreplyai/go-assistant-core/flowrun"
 	"github.com/dreplyai/go-assistant/chats"
 	"github.com/redelay/go-flowdsl/flowexec"
 	flowsink "github.com/redelay/go-flowdsl/flowexec/sink"
@@ -252,7 +253,7 @@ func (m *Module) pumpChatFrames(
 					}, RunID: runID})
 					continue
 				}
-				if content := extractContent(ev.Payload); content != "" {
+				if content := flowrun.ExtractContent(ev.Payload); content != "" {
 					// Citations: when a RAG-style flow ran, the packet
 					// carries a `sources` array stamped by
 					// redelay/assistant-rag-context. Forward it
@@ -315,51 +316,6 @@ func (m *Module) pumpChatFrames(
 	}
 }
 
-// extractContent pulls the user-facing reply text out of a node.done payload.
-// Accepts a few conventional shapes emitted by llm-chat-style handlers:
-//
-//	{output: {message: {content: "..."}}}
-//	{output: {content: "..."}}
-//	{output: "..."}
-//	{message: {content: "..."}}
-//	{content: "..."}
-//
-// Node handler outputs may contain typed Go structs (e.g. llm.Message) rather
-// than plain map[string]any. We JSON-marshal the payload once to normalise
-// everything to maps before extracting.
-func extractContent(p map[string]any) string {
-	if p == nil {
-		return ""
-	}
-	// Normalise: JSON round-trip turns typed structs into map[string]any.
-	norm := normalisePayload(p)
-
-	if s, ok := norm["content"].(string); ok && s != "" {
-		return s
-	}
-	if msg, ok := norm["message"].(map[string]any); ok {
-		if s, ok := msg["content"].(string); ok {
-			return s
-		}
-	}
-	if out, ok := norm["output"]; ok {
-		switch v := out.(type) {
-		case string:
-			return v
-		case map[string]any:
-			if s, ok := v["content"].(string); ok && s != "" {
-				return s
-			}
-			if msg, ok := v["message"].(map[string]any); ok {
-				if s, ok := msg["content"].(string); ok {
-					return s
-				}
-			}
-		}
-	}
-	return ""
-}
-
 // extractSources pulls the RAG citation list out of a terminal-node
 // payload. Looks in the same places extractContent does
 // (root → output → output.output) because flowexec sometimes wraps
@@ -367,7 +323,7 @@ func extractContent(p map[string]any) string {
 // Returns nil (not empty slice) when sources are absent so the JSON
 // frame omits the field via `omitempty`.
 func extractSources(p map[string]any) []map[string]any {
-	return extractMapSlice(p, "sources")
+	return flowrun.ExtractMapSlice(p, "sources")
 }
 
 // extractActions pulls the UI-action list out of a terminal-node
@@ -377,7 +333,7 @@ func extractSources(p map[string]any) []map[string]any {
 //
 // Returns nil when none present so `omitempty` drops the field.
 func extractActions(p map[string]any) []Action {
-	raw := extractMapSlice(p, "actions")
+	raw := flowrun.ExtractMapSlice(p, "actions")
 	if len(raw) == 0 {
 		return nil
 	}
@@ -406,39 +362,6 @@ func extractActions(p map[string]any) []Action {
 		return nil
 	}
 	return out
-}
-
-// extractMapSlice is the shared helper behind extractSources /
-// extractActions — both fields ride on the same payload and need the
-// same root/output/output.output search path.
-func extractMapSlice(p map[string]any, key string) []map[string]any {
-	if p == nil {
-		return nil
-	}
-	norm := normalisePayload(p)
-	candidates := []any{norm[key]}
-	if out, ok := norm["output"].(map[string]any); ok {
-		candidates = append(candidates, out[key])
-	}
-	for _, c := range candidates {
-		if c == nil {
-			continue
-		}
-		raw, ok := c.([]any)
-		if !ok {
-			continue
-		}
-		out := make([]map[string]any, 0, len(raw))
-		for _, item := range raw {
-			if m, ok := item.(map[string]any); ok {
-				out = append(out, m)
-			}
-		}
-		if len(out) > 0 {
-			return out
-		}
-	}
-	return nil
 }
 
 // anonIDFromRequest builds a readable "anon-<ip>" identifier for an
@@ -498,17 +421,4 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
-// normalisePayload converts a map that may contain typed Go structs into a
-// pure map[string]any via a JSON round-trip.
-func normalisePayload(p map[string]any) map[string]any {
-	b, err := json.Marshal(p)
-	if err != nil {
-		return p
-	}
-	var out map[string]any
-	if err := json.Unmarshal(b, &out); err != nil {
-		return p
-	}
-	return out
-}
 

@@ -39,23 +39,46 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # Needs read access to several private repos at once — redelay/* plus
-      # DreplyAI/go-assistant-core — so a per-repository deploy key will not
-      # do. Use a machine user's SSH key with org read access, as
-      # CI_SSH_PRIVATE_KEY.
-      - name: Authenticate to private modules
-        env:
-          SSH_KEY: ${{ secrets.CI_SSH_PRIVATE_KEY }}
+      # GITHUB_TOKEN reaches only the repository running the workflow, so it
+      # cannot fetch redelay/* or the kernel. Owning the orgs does not change
+      # that — the constraint is the token's scope, not permission.
+      #
+      # An App installation token is scoped to the account it is installed on,
+      # so two orgs means two tokens. Both are short-lived and vanish with the
+      # job. Requires variable CI_APP_ID and secret CI_APP_PRIVATE_KEY, with the
+      # App installed on redelay and DreplyAI.
+      - name: Token for redelay
+        id: redelay
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          owner: redelay
+
+      - name: Token for DreplyAI
+        id: dreply
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          owner: DreplyAI
+
+      - name: Route private fetches through the App tokens
         run: |
-          if [ -z "$SSH_KEY" ]; then
-            echo "::error::CI_SSH_PRIVATE_KEY is not set — private module fetches will fail."
-            exit 1
-          fi
-          mkdir -p ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -t rsa,ecdsa,ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
-          git config --global url."git@github.com:".insteadOf "https://github.com/"
+          # Rewrites are per-org, not a blanket github.com rule: each token is
+          # only valid for its own installation, so a single rule would send
+          # redelay's token to DreplyAI and get a 404 that looks like a missing
+          # tag.
+          git config --global \
+            url."https://x-access-token:${{ steps.redelay.outputs.token }}@github.com/redelay/".insteadOf \
+            "https://github.com/redelay/"
+          # Keyed on the LOWERCASE org, because that is what Go requests: the
+          # module path is github.com/dreplyai/go-assistant-core even though the
+          # repository is DreplyAI/…, and insteadOf matches the URL literally.
+          # Case-correct here and the rewrite silently never fires.
+          git config --global \
+            url."https://x-access-token:${{ steps.dreply.outputs.token }}@github.com/dreplyai/".insteadOf \
+            "https://github.com/dreplyai/"
 
       # go.work is gitignored and must never appear here: it would build the
       # kernel from a sibling checkout that does not exist on a runner, and —

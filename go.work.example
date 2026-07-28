@@ -1,0 +1,24 @@
+// Local-dev override — copy to go.work (gitignored) to edit the kernel in place.
+//
+//	cp go.work.example go.work
+//
+// go.mod stays authoritative: it pins github.com/dreplyai/go-assistant-core to a
+// released tag, which is what CI and any fresh clone build from. This file swaps
+// that for the sibling checkout so a change in the kernel is picked up without a
+// tag-and-bump round trip.
+//
+// Do NOT commit go.work, and do not reintroduce a `replace` in go.mod to get the
+// same effect. A replace is invisible to whoever clones the repo next: it makes
+// the build pass on the one machine that has the sibling directory and fail
+// everywhere else. That is exactly how this dependency spent its first months —
+// buildable only here, because the repo it named did not exist yet.
+//
+// Before pushing, verify the build BOTH ways: with go.work present, and with it
+// moved aside. Only the second one proves the pin is real.
+
+go 1.25.0
+
+use (
+	.
+	../go-assistant-core
+)

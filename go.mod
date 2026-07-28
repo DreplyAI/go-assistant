@@ -3,7 +3,7 @@ module github.com/dreplyai/go-assistant
 go 1.25.0
 
 require (
-	github.com/dreplyai/go-assistant-core v0.0.0-00010101000000-000000000000
+	github.com/dreplyai/go-assistant-core v0.1.0
 	github.com/google/uuid v1.6.0
 	github.com/redelay/go-ai v0.2.1
 	github.com/redelay/go-events v0.2.0
@@ -49,5 +49,3 @@ require (
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
 )
-
-replace github.com/dreplyai/go-assistant-core => ../go-assistant-core

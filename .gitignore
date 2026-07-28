@@ -18,3 +18,7 @@ vendor/
 .env
 .env.*
 !.env.example
+
+# Local-dev workspace override (see go.work.example)
+go.work
+go.work.sum

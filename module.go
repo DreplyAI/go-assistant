@@ -31,7 +31,6 @@ import (
 	"time"
 
 	"github.com/dreplyai/go-assistant/chats"
-	"github.com/dreplyai/go-assistant/corpus"
 	assistantflowdsl "github.com/dreplyai/go-assistant/flowdsl"
 	"github.com/dreplyai/go-assistant/handoff"
 	flowexecmod "github.com/redelay/go-flowdsl/flowexec/module"
@@ -41,6 +40,7 @@ import (
 	fwconfig "github.com/redelay/go-framework/config"
 	"github.com/redelay/go-framework/modules"
 	"github.com/redelay/go-modules/search"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.uber.org/zap"
 )
 
@@ -63,6 +63,11 @@ type Module struct {
 	// streaming still works).
 	chats   *chats.Service
 	handoff *handoff.Service
+
+	// db is kept because the docs corpus's document store is built from it in
+	// two different processes: the server at Startup, and the ingest command,
+	// which never runs Startup.
+	db *mongo.Database
 
 	// EventBus is used to publish assistant.handoff_requested. Nil
 	// when the deployment has no transport — handoff persistence
@@ -164,6 +169,7 @@ func New(deps modules.ModuleDeps) (*Module, error) {
 	// history + handoffs are simply not durable in that case; the
 	// SSE stream still works and end users don't notice.
 	if deps.DB != nil {
+		m.db = deps.DB
 		m.chats = chats.NewService(deps.DB, chats.Options{
 			TTL: time.Duration(cfg.ChatTTLDays) * 24 * time.Hour,
 		})
@@ -189,17 +195,7 @@ func (m *Module) Startup(ctx context.Context) error {
 	// Startup is the right seam because only a project that mounts the
 	// assistant module gets here, which is exactly the projects that have
 	// docs to cite.
-	corpus.Register(corpus.Corpus{
-		Name:        m.cfg.DocsIndex,
-		Title:       "Project documentation",
-		Description: "Markdown docs, chunked by heading and indexed for the assistant to cite.",
-		Icon:        "book-open",
-		Owner:       "assistant",
-		Kind:        "doc",
-		MinScore:    0.35,
-		TopK:        3,
-		Examples:    []string{"how do I create a module", "what is a flow deployment"},
-	})
+	m.registerDocsCorpus(ctx)
 
 	if m.chats != nil {
 		if err := m.chats.EnsureIndexes(ctx); err != nil {

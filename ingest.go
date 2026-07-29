@@ -107,21 +107,19 @@ func (m *Module) runIngestDocs(ctx context.Context, args map[string]string) erro
 		return fmt.Errorf("assistant-ingest-docs: search service unavailable (is SEARCH_BACKEND set?)")
 	}
 
-	// Startup already registered the docs corpus, but the CLI is a separate
-	// process that never runs it — and --index can point somewhere else — so
-	// register defensively. Last write wins, so re-registering the same name
-	// is a no-op.
-	if _, ok := corpus.Get(indexName); !ok {
-		corpus.Register(corpus.Corpus{
-			Name:        indexName,
-			Title:       "Project documentation",
-			Description: "Markdown docs, chunked by heading and indexed for the assistant to cite.",
-			Icon:        "book-open",
-			Owner:       "assistant",
-			Kind:        "doc",
-			MinScore:    0.35,
-			TopK:        3,
-		})
+	// This process never ran Startup, so the corpus and its document store
+	// have to be attached here — otherwise the ingest writes vectors and no
+	// documents, and the admin browser stays empty after a successful run.
+	m.registerDocsCorpus(ctx)
+	if indexName != m.cfg.DocsIndex {
+		// --index pointed somewhere else: register that name too, without a
+		// store, so the run still has a corpus to write into.
+		if _, ok := corpus.Get(indexName); !ok {
+			corpus.Register(corpus.Corpus{
+				Name: indexName, Title: indexName, Owner: "assistant", Kind: "doc",
+				MinScore: 0.35, TopK: 3,
+			})
+		}
 	}
 
 	src, err := newMarkdownSource(docsDir, urlBase)

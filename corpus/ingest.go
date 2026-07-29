@@ -51,6 +51,12 @@ type Ingester struct {
 	UpsertBatch int
 
 	OnProgress func(Stats)
+
+	// OnStoreError, when set, turns a document-store failure into a reported
+	// warning instead of ending the run. The index is the product; the
+	// browser is a convenience, and losing it should not discard embeddings
+	// already paid for.
+	OnStoreError func(error)
 }
 
 const (
@@ -89,15 +95,33 @@ func (i *Ingester) Ingest(ctx context.Context, src Source) (Stats, error) {
 		}
 	}
 
+	// Documents go to the optional store alongside the chunks. Written in the
+	// same batches so a cancelled run leaves the two roughly consistent rather
+	// than a full index and an empty browser.
+	store, hasStore := Store(c.Name)
+
 	pending := make([]search.Document, 0, upsertBatch)
+	pendingDocs := make([]Doc, 0, 64)
 	flush := func() error {
-		if len(pending) == 0 {
-			return nil
+		if len(pending) > 0 {
+			if err := i.Search.Upsert(ctx, c.Name, pending); err != nil {
+				return err
+			}
+			pending = pending[:0]
 		}
-		if err := i.Search.Upsert(ctx, c.Name, pending); err != nil {
-			return err
+		if hasStore && len(pendingDocs) > 0 {
+			if err := store.Put(ctx, c.Name, pendingDocs); err != nil {
+				// The index is the product; the browser is a convenience. A
+				// store failure should not discard embeddings already paid
+				// for, so it is reported and the run continues.
+				if i.OnStoreError != nil {
+					i.OnStoreError(err)
+				} else {
+					return fmt.Errorf("corpus: doc store: %w", err)
+				}
+			}
+			pendingDocs = pendingDocs[:0]
 		}
-		pending = pending[:0]
 		return nil
 	}
 
@@ -122,6 +146,11 @@ func (i *Ingester) Ingest(ctx context.Context, src Source) (Stats, error) {
 			continue
 		}
 		stats.Docs++
+		if hasStore {
+			doc.Prov.Snapshot = i.Snapshot
+			doc.Licence = licenceOrUnknown(doc.Licence)
+			pendingDocs = append(pendingDocs, doc)
+		}
 		for _, ch := range chunks {
 			pending = append(pending, search.Document{
 				ID:      ch.ID,
@@ -230,6 +259,13 @@ func payloadSchema(t string) string {
 	default:
 		return "keyword"
 	}
+}
+
+func licenceOrUnknown(s string) string {
+	if s == "" {
+		return "unknown"
+	}
+	return s
 }
 
 func kindOr(a, b string) string {

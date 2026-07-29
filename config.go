@@ -44,6 +44,15 @@ type Config struct {
 	// the ingest command and the Startup registration, so the name cannot
 	// drift between what is written and what the admin browser looks for.
 	DocsIndex string // ASSISTANT_DOCS_INDEX (default "redelay_docs")
+
+	// DocsCorpus opts the project into the docs corpus.
+	//
+	// Off by default. Registering it unconditionally gave every project that
+	// mounts this kernel a "Project documentation" corpus in its admin —
+	// including projects with no docs, which then advertise something they
+	// cannot answer from. A corpus nobody ingested into is worse than absent:
+	// it invites a query and returns nothing.
+	DocsCorpus bool // ASSISTANT_DOCS_CORPUS (default false)
 	// OutputNodes is the set of terminal node ids whose node.done
 	// payload is surfaced to the client. Parsed from
 	// ASSISTANT_OUTPUT_NODE as a comma-separated list so operators can
@@ -63,6 +72,7 @@ func DefaultConfig() Config {
 		FlowID:           fwconfig.GetEnv("ASSISTANT_FLOW_ID", defaultFlowID),
 		InputKey:         fwconfig.GetEnv("ASSISTANT_INPUT_KEY", defaultInputKey),
 		DocsIndex:        fwconfig.GetEnv("ASSISTANT_DOCS_INDEX", "redelay_docs"),
+		DocsCorpus:       fwconfig.GetBool("ASSISTANT_DOCS_CORPUS", false),
 		OutputNodes:      parseOutputNodes(fwconfig.GetEnv("ASSISTANT_OUTPUT_NODE", "")),
 		Provider:         fwconfig.GetEnv("ASSISTANT_PROVIDER", ""),
 		Model:            fwconfig.GetEnv("ASSISTANT_MODEL", ""),

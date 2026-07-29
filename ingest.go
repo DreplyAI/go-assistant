@@ -110,6 +110,8 @@ func (m *Module) runIngestDocs(ctx context.Context, args map[string]string) erro
 	// This process never ran Startup, so the corpus and its document store
 	// have to be attached here — otherwise the ingest writes vectors and no
 	// documents, and the admin browser stays empty after a successful run.
+	// Running the ingest command IS the opt-in, whatever the env says.
+	m.cfg.DocsCorpus = true
 	m.registerDocsCorpus(ctx)
 	if indexName != m.cfg.DocsIndex {
 		// --index pointed somewhere else: register that name too, without a

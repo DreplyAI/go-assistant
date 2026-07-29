@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/dreplyai/go-assistant-core/flowrun"
 	"github.com/dreplyai/go-assistant/chats"
+	"github.com/google/uuid"
 	"github.com/redelay/go-flowdsl/flowexec"
 	flowsink "github.com/redelay/go-flowdsl/flowexec/sink"
 	flowstore "github.com/redelay/go-flowdsl/flowexec/store"
@@ -420,5 +420,3 @@ func clientIP(r *http.Request) string {
 	}
 	return host
 }
-
-

@@ -156,10 +156,10 @@ type HandoffResponse struct {
 
 // ChatResponse is the shape of GET /chats/me/{sessionID}.
 type ChatResponse struct {
-	SessionID string          `json:"sessionId"`
-	StartedAt string          `json:"startedAt"`
-	LastAt    string          `json:"lastAt"`
-	Messages  []ChatMessage   `json:"messages"`
+	SessionID string        `json:"sessionId"`
+	StartedAt string        `json:"startedAt"`
+	LastAt    string        `json:"lastAt"`
+	Messages  []ChatMessage `json:"messages"`
 	// HandoffRequested is true when the chat already has an open
 	// handoff record — lets the UI hide the button.
 	HandoffRequested bool `json:"handoffRequested,omitempty"`
@@ -185,12 +185,12 @@ type ConfigResponse struct {
 	// FlowID is the concrete flow id the active variant points at.
 	// Exposed so widget telemetry can segment by flow, not just by
 	// variant label.
-	FlowID            string                `json:"flowId"`
-	FlowName          string                `json:"flowName,omitempty"`
-	HandoffEnabled    bool                  `json:"handoffEnabled"`
-	AnonymousAllowed  bool                  `json:"anonymousAllowed"`
-	ChatTTLDays       int                   `json:"chatTtlDays"`
-	Capabilities      AssistantCapabilities `json:"capabilities"`
+	FlowID           string                `json:"flowId"`
+	FlowName         string                `json:"flowName,omitempty"`
+	HandoffEnabled   bool                  `json:"handoffEnabled"`
+	AnonymousAllowed bool                  `json:"anonymousAllowed"`
+	ChatTTLDays      int                   `json:"chatTtlDays"`
+	Capabilities     AssistantCapabilities `json:"capabilities"`
 }
 
 // AssistantCapabilities is derived from the published flow document.

@@ -54,4 +54,3 @@ var defaultStreamFlowJSON []byte
 //
 //go:embed flows/multi-guard.flowdsl.json
 var multiGuardFlowJSON []byte
-

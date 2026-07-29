@@ -24,6 +24,11 @@ type Request struct {
 
 	// Filter is an equality filter on payload fields, e.g. {"language": "en"}.
 	Filter map[string]any
+
+	// NoRewrite embeds Query verbatim, skipping the corpus's Rewriter. For
+	// callers that need the score for exactly this text — threshold tuning in
+	// the admin, and any measurement of the rewriter's own effect.
+	NoRewrite bool
 }
 
 // Retrieve returns citations above the corpus's relevance floor.
@@ -66,8 +71,22 @@ func Retrieve(ctx context.Context, corpusName string, r Request) ([]Citation, er
 		limit = topK
 	}
 
+	// Rewrite before embedding. Measured on the sports-science corpus: "does
+	// creatine really work?" retrieves the wrong paper at 0.534, the rewritten
+	// form the right one at 0.752, while an off-topic question gains only
+	// 0.03 — so this widens the gap the floor sits in rather than lifting
+	// every score into it.
+	//
+	// Skipped when the caller passes NoRewrite, which the admin test-query
+	// does: an operator moving a threshold needs to see the raw score for the
+	// text they typed, not for something a model wrote.
+	query := r.Query
+	if c.Rewriter != nil && !r.NoRewrite {
+		query = c.Rewriter.Rewrite(ctx, r.Query)
+	}
+
 	hits, err := svc.Search(ctx, c.Name, search.Query{
-		Text:    r.Query,
+		Text:    query,
 		Limit:   limit,
 		Payload: r.Filter,
 	})

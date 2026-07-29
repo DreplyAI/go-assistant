@@ -37,6 +37,15 @@ type Corpus struct {
 
 	TopK int
 
+	// Rewriter turns a user's question into a query for THIS corpus — into its
+	// language and the register its documents are written in. Optional: a
+	// corpus without one embeds what the user typed.
+	//
+	// On the corpus rather than global because the right rewrite depends on
+	// what is indexed. A corpus of English abstracts and one of German legal
+	// opinions want different instructions, and a single process can hold both.
+	Rewriter Rewriter
+
 	Fields   []search.IndexField
 	Examples []string
 

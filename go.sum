@@ -19,6 +19,8 @@ github.com/flowdsl/flowdsl-go v0.1.0 h1:C+y4r2pb0QOYPQPkQx0OxAVIrZ8vcSCCklfQ/wj3
 github.com/flowdsl/flowdsl-go v0.1.0/go.mod h1:1M+FHobs7sQiUqHxDpe1dsnJQmgkqJfSf3lsBoJS+t0=
 github.com/go-chi/chi/v5 v5.2.5 h1:Eg4myHZBjyvJmAFjFvWgrqDTXFyOzjj7YIm3L3mu6Ug=
 github.com/go-chi/chi/v5 v5.2.5/go.mod h1:X7Gx4mteadT3eDOMTsXzmI4/rwUpOwBHLpAfupzFJP0=
+github.com/go-chi/chi/v5 v5.3.0 h1:halUjDxhshgXHMrao5bB8eNBXo/rnzwr8m5m36glehM=
+github.com/go-chi/chi/v5 v5.3.0/go.mod h1:R+tYY2hNuVUUjxoPtqUdgBqevM9s9njzkTLutVsOCto=
 github.com/go-faster/city v1.0.1 h1:4WAxSZ3V2Ws4QRDrscLEDcibJY8uf41H6AhXDrNDcGw=
 github.com/go-faster/city v1.0.1/go.mod h1:jKcUJId49qdW3L1qKHH/3wPeUstCVpVSXTM6vO3VcTw=
 github.com/go-faster/errors v0.6.1 h1:nNIPOBkprlKzkThvS/0YaX8Zs9KewLCOSFQS5BU06FI=
@@ -63,6 +65,8 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/redelay/go-ai v0.2.1 h1:8urPnYJOhW1aWyy+VwacHqgfPjZT+D9u0HHuIud3edM=
 github.com/redelay/go-ai v0.2.1/go.mod h1:zC8WDTAMoWW7db6ZNqstVgJOuorQilP+m8IFVMfNpnU=
+github.com/redelay/go-ai v0.10.0 h1:nxktIt5nDtdFBJU8p9r8uNeQLOwqcaltFRnw1KN+lyo=
+github.com/redelay/go-ai v0.10.0/go.mod h1:zC8WDTAMoWW7db6ZNqstVgJOuorQilP+m8IFVMfNpnU=
 github.com/redelay/go-events v0.2.0 h1:uRYydg8MMsIWkeDpDCGzAOWOIdpWHrXgHRx+q1Ukdp8=
 github.com/redelay/go-events v0.2.0/go.mod h1:jTSalxTGesC7YgKzNg4R8nRsXATK5Hnsmk1BXJ5peEg=
 github.com/redelay/go-flowdsl v0.1.13 h1:ovZejP/Eheg4ospM66lmRJtbmK87/0VokqUn6crs4IU=
@@ -77,6 +81,10 @@ github.com/redelay/go-framework v0.2.0 h1:gBUoSyG26tM6MkherwKFvwibZ6rFO0BFp0EGXn
 github.com/redelay/go-framework v0.2.0/go.mod h1:p2Y0eisGH/f78Wju8cZV3a+mx7ADEpIDfCBNDO1TuGg=
 github.com/redelay/go-modules v0.5.0 h1:XyIdh+/+Otp19AiMOT2OyIot1n9g9MsnhnRu5Zl4gAg=
 github.com/redelay/go-modules v0.5.0/go.mod h1:TaEs88kQ4+3Ma7jxcJdfrt7jCYnCkl7DOAIAb4P1XxM=
+github.com/redelay/go-modules v0.16.0 h1:1YjMzfZ9G800jkwrhsRAoPuZCRiMhimv0OXsUhNITXs=
+github.com/redelay/go-modules v0.16.0/go.mod h1:FIvF4uR0VKMiwBHliz4Y7ZES5z7WCzknYRu2OkxnNxI=
+github.com/redelay/go-modules v0.16.1 h1:OyqlDIxaf4ykt4prNsQ+Wr3DNwoQRMYHLbW1N0cO4M8=
+github.com/redelay/go-modules v0.16.1/go.mod h1:1eDzK/qvpaZK1iyeIEhgco7JpmQ9AQXE+W1N6bVlWDs=
 github.com/redis/go-redis/v9 v9.18.0 h1:pMkxYPkEbMPwRdenAzUNyFNrDgHx9U+DrBabWNfSRQs=
 github.com/redis/go-redis/v9 v9.18.0/go.mod h1:k3ufPphLU5YXwNTUcCRXGxUoF1fqxnhFQmscfkCoDA0=
 github.com/rogpeppe/go-internal v1.10.0 h1:TMyTOH3F/DB16zRVcYyreMH6GnZZrwQVAoYjRBZyWFQ=
@@ -145,6 +153,8 @@ golang.org/x/sync v0.0.0-20210220032951-036812b2e83c/go.mod h1:RxMgew5VJxzue5/jJ
 golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
 golang.org/x/sync v0.20.0 h1:e0PTpb7pjO8GAtTs2dQ6jYa5BWYlMuX047Dco/pItO4=
 golang.org/x/sync v0.20.0/go.mod h1:9xrNwdLfx4jkKbNva9FpL6vEN7evnE43NNNJQ2LF3+0=
+golang.org/x/sync v0.21.0 h1:HLII4xRRTtCRkxYp4HNFF0Js/Og6q2i++KXbg0gHCwM=
+golang.org/x/sync v0.21.0/go.mod h1:9xrNwdLfx4jkKbNva9FpL6vEN7evnE43NNNJQ2LF3+0=
 golang.org/x/sys v0.0.0-20190215142949-d0b11bdaac8a/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
 golang.org/x/sys v0.0.0-20190412213103-97732733099d/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
 golang.org/x/sys v0.0.0-20200930185726-fdedc70b468f/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
@@ -164,6 +174,8 @@ golang.org/x/text v0.3.7/go.mod h1:u+2+/6zg+i71rQMx5EYifcz6MCKuco9NR6JIITiCfzQ=
 golang.org/x/text v0.3.8/go.mod h1:E6s5w1FMmriuDzIBO73fBruAKo1PCIq6d2Q6DHfQ8WQ=
 golang.org/x/text v0.35.0 h1:JOVx6vVDFokkpaq1AEptVzLTpDe9KGpj5tR4/X+ybL8=
 golang.org/x/text v0.35.0/go.mod h1:khi/HExzZJ2pGnjenulevKNX1W67CUy0AsXcNubPGCA=
+golang.org/x/text v0.39.0 h1:UbZz4pLOvn600D6Oh6GGEI6VAmndrEBLv8/6BEXzyus=
+golang.org/x/text v0.39.0/go.mod h1:3UwRclnC2g0TU9x8PZiyfOajCd1zaUNHF9cvqcQZ+ZM=
 golang.org/x/tools v0.0.0-20180917221912-90fa682c2a6e/go.mod h1:n7NCudcB/nEzxVGmLbDWY5pfWTLqBcC2KZ6jyYvM4mQ=
 golang.org/x/tools v0.0.0-20191119224855-298f0cb1881e/go.mod h1:b+2E5dAYhXwXZwtnZ6UAqBI28+e2cm9otk0dWdXHAEo=
 golang.org/x/tools v0.0.0-20200619180055-7c47624df98f/go.mod h1:EkVYQZoAsY45+roYkvgYkIh4xh/qjgUK9TdY2XT94GE=

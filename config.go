@@ -39,6 +39,11 @@ type Config struct {
 	// is no longer read.
 	FlowID   string // ASSISTANT_FLOW_ID (legacy)
 	InputKey string // ASSISTANT_INPUT_KEY
+
+	// DocsIndex is the corpus/search index the docs live in. Read by both
+	// the ingest command and the Startup registration, so the name cannot
+	// drift between what is written and what the admin browser looks for.
+	DocsIndex string // ASSISTANT_DOCS_INDEX (default "redelay_docs")
 	// OutputNodes is the set of terminal node ids whose node.done
 	// payload is surfaced to the client. Parsed from
 	// ASSISTANT_OUTPUT_NODE as a comma-separated list so operators can
@@ -57,6 +62,7 @@ func DefaultConfig() Config {
 		DeploymentID:     fwconfig.GetEnv("ASSISTANT_DEPLOYMENT_ID", defaultFlowID),
 		FlowID:           fwconfig.GetEnv("ASSISTANT_FLOW_ID", defaultFlowID),
 		InputKey:         fwconfig.GetEnv("ASSISTANT_INPUT_KEY", defaultInputKey),
+		DocsIndex:        fwconfig.GetEnv("ASSISTANT_DOCS_INDEX", "redelay_docs"),
 		OutputNodes:      parseOutputNodes(fwconfig.GetEnv("ASSISTANT_OUTPUT_NODE", "")),
 		Provider:         fwconfig.GetEnv("ASSISTANT_PROVIDER", ""),
 		Model:            fwconfig.GetEnv("ASSISTANT_MODEL", ""),

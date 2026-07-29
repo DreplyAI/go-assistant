@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/dreplyai/go-assistant/chats"
+	"github.com/dreplyai/go-assistant/corpus"
 	assistantflowdsl "github.com/dreplyai/go-assistant/flowdsl"
 	"github.com/dreplyai/go-assistant/handoff"
 	flowexecmod "github.com/redelay/go-flowdsl/flowexec/module"
@@ -175,6 +176,31 @@ func New(deps modules.ModuleDeps) (*Module, error) {
 // is ready. Idempotent — flow seeding is skipped when one exists,
 // and EnsureIndexes is safe to re-run on every boot.
 func (m *Module) Startup(ctx context.Context) error {
+	// The docs corpus is declared here, not in the ingest command.
+	//
+	// It lived in the CLI handler first, on the reasoning that registering at
+	// import time would put a corpus in the admin browser of every project
+	// that links this package. That was the wrong conclusion from a correct
+	// premise: the registry is read by a running server — the admin browser,
+	// the retrieval node — and the CLI is a separate process, so a
+	// CLI-only registration means the server never knows the corpus exists
+	// and /admin/assistant/corpora is empty however full the index is.
+	//
+	// Startup is the right seam because only a project that mounts the
+	// assistant module gets here, which is exactly the projects that have
+	// docs to cite.
+	corpus.Register(corpus.Corpus{
+		Name:        m.cfg.DocsIndex,
+		Title:       "Project documentation",
+		Description: "Markdown docs, chunked by heading and indexed for the assistant to cite.",
+		Icon:        "book-open",
+		Owner:       "assistant",
+		Kind:        "doc",
+		MinScore:    0.35,
+		TopK:        3,
+		Examples:    []string{"how do I create a module", "what is a flow deployment"},
+	})
+
 	if m.chats != nil {
 		if err := m.chats.EnsureIndexes(ctx); err != nil {
 			m.logger.Warn("assistant: chats EnsureIndexes failed", zap.Error(err))

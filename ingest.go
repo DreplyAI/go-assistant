@@ -91,7 +91,7 @@ func (m *Module) runIngestDocs(ctx context.Context, args map[string]string) erro
 	if _, err := os.Stat(docsDir); err != nil {
 		return fmt.Errorf("assistant-ingest-docs: docs-dir %q: %w", docsDir, err)
 	}
-	indexName := strOr(args["index"], "redelay_docs")
+	indexName := strOr(args["index"], m.cfg.DocsIndex)
 	urlBase := strings.TrimRight(args["url-base"], "/")
 	maxTokens := parseIntDefault(args["max-chunk-tokens"], 500)
 	batchSize := parseIntDefault(args["batch-size"], 25)
@@ -107,21 +107,22 @@ func (m *Module) runIngestDocs(ctx context.Context, args map[string]string) erro
 		return fmt.Errorf("assistant-ingest-docs: search service unavailable (is SEARCH_BACKEND set?)")
 	}
 
-	// Declared here rather than in an init(): the docs corpus belongs to the
-	// assistant, and registering it at import time would put it in the admin
-	// browser of every project that links the package whether or not it has
-	// docs indexed.
-	corpus.Register(corpus.Corpus{
-		Name:        indexName,
-		Title:       "Project documentation",
-		Description: "Markdown docs, chunked by heading and indexed for the assistant to cite.",
-		Icon:        "book-open",
-		Owner:       "assistant",
-		Kind:        "doc",
-		MinScore:    0.35,
-		TopK:        3,
-		Examples:    []string{"how do I create a module", "what is a flow deployment"},
-	})
+	// Startup already registered the docs corpus, but the CLI is a separate
+	// process that never runs it — and --index can point somewhere else — so
+	// register defensively. Last write wins, so re-registering the same name
+	// is a no-op.
+	if _, ok := corpus.Get(indexName); !ok {
+		corpus.Register(corpus.Corpus{
+			Name:        indexName,
+			Title:       "Project documentation",
+			Description: "Markdown docs, chunked by heading and indexed for the assistant to cite.",
+			Icon:        "book-open",
+			Owner:       "assistant",
+			Kind:        "doc",
+			MinScore:    0.35,
+			TopK:        3,
+		})
+	}
 
 	src, err := newMarkdownSource(docsDir, urlBase)
 	if err != nil {

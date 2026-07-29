@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dreplyai/go-assistant-core/adminkit"
 	"github.com/dreplyai/go-assistant"
+	"github.com/dreplyai/go-assistant-core/adminkit"
 	"github.com/dreplyai/go-assistant/chats"
 	"github.com/dreplyai/go-assistant/handoff"
 	"github.com/redelay/go-framework/modules"
@@ -60,6 +60,22 @@ func (m *Module) Routes(r modules.Router) {
 			modules.Response(404, "Not found", modules.RedelayErrorResponse{}),
 			modules.Security("BearerAuth"),
 		)
+		// Corpora — the document-level view. The search admin browses chunks;
+		// these answer "which documents do we have" and "what is the floor
+		// throwing away", neither of which is a question about a chunk.
+		g.Handle("GET", "/corpora", http.HandlerFunc(m.handleListCorpora),
+			modules.Summary("List registered corpora with live counts"),
+		)
+		g.Handle("GET", "/corpora/{name}/documents", http.HandlerFunc(m.handleListCorpusDocs),
+			modules.Summary("Browse a corpus's documents"),
+		)
+		g.Handle("GET", "/corpora/{name}/documents/{id}", http.HandlerFunc(m.handleGetCorpusDoc),
+			modules.Summary("One document, with provenance and licence"),
+		)
+		g.Handle("POST", "/corpora/{name}/test-query", http.HandlerFunc(m.handleCorpusTestQuery),
+			modules.Summary("Retrieve with the floor applied, showing dropped hits"),
+		)
+
 		g.Handle("POST", "/reset", http.HandlerFunc(m.handleReset),
 			modules.Summary("Reset the assistant flow to one of the embedded templates"),
 			modules.Description(

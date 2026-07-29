@@ -23,7 +23,7 @@ import (
 type nopBus struct{}
 
 func (nopBus) Publish(context.Context, *modules.EventMessage) error { return nil }
-func (nopBus) Close() error                                          { return nil }
+func (nopBus) Close() error                                         { return nil }
 
 // newAdminFixture wires the assistant core + admin module against a
 // scratch DB. Unlike the public_handlers test, this setup also

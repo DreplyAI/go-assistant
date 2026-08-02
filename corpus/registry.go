@@ -71,12 +71,29 @@ var (
 //
 // Last registration wins, matching search.RegisterEntity, so a project can
 // override a corpus a library declared.
+const defaultMinScore float32 = 0.3
+
 func Register(c Corpus) {
 	if c.Name == "" {
 		return
 	}
 	if c.TopK <= 0 {
 		c.TopK = 3
+	}
+	// A corpus declared without a floor would otherwise get 0 — and `0` does
+	// not mean "sensible default" here, it means EVERY hit is a citation. The
+	// worst score Qdrant returns still clears it, so the corpus silently
+	// behaves as though the floor feature did not exist, which is exactly the
+	// failure the descriptor was introduced to prevent.
+	//
+	// 0.3 is deliberately low: it is a backstop against nonsense, not a tuned
+	// value. Every corpus that matters measures its own (papers sits at 0.675,
+	// the docs at 0.35) — this only has to be better than nothing.
+	//
+	// A corpus that genuinely wants no floor says so with a negative value;
+	// Retrieve compares `score < floor`, so anything negative admits everything.
+	if c.MinScore == 0 {
+		c.MinScore = defaultMinScore
 	}
 	if c.Kind == "" {
 		c.Kind = "doc"

@@ -220,6 +220,14 @@ func (m *Module) Startup(ctx context.Context) error {
 		// search module hasn't finished booting (Startup order is
 		// alphabetical, so `assistant` runs before `search`).
 		assistantflowdsl.RegisterRagContext(eng)
+		// The composable pair. Registered unconditionally alongside the older
+		// node: both resolve their dependencies lazily, and a handler that is
+		// declared in the manifest but never registered is the worst of both
+		// worlds — Studio offers the node, a flow using it validates, and the
+		// run fails at the step with "no handler". That was this package's
+		// state until now: corpus-retrieve had a handler nothing ever wired.
+		assistantflowdsl.RegisterCorpusRetrieve(eng)
+		assistantflowdsl.RegisterCorpusContext(eng)
 	}
 	if err := m.ensureFlow(ctx, false); err != nil {
 		return err

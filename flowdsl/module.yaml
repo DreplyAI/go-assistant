@@ -144,3 +144,153 @@ flowdsl_nodes:
                 type: object
             ragSkipped:
               type: string
+
+  # ── The composable pair ───────────────────────────────────────────────────
+  #
+  # assistant-rag-context above does retrieval AND grounding in one node, which
+  # is convenient and uncomposable: it searches with no relevance floor, and it
+  # overwrites `messages`, `sources` and `actions` unconditionally. A flow that
+  # wants its own prompt, a different corpus, or two corpora cannot use it.
+  #
+  # These two split that in half along the packet. Retrieve writes exactly one
+  # key and touches nothing else; context reads that key and never searches.
+  # Kept as siblings rather than a replacement — the existing flows work, and
+  # the older node's behaviour is the right default for a single-corpus flow
+  # that has no opinion about its prompt.
+
+  - id: redelay/assistant-corpus-retrieve
+    name: Corpus — Retrieve
+    summary: Search a registered corpus and write the surviving citations to one packet key. Applies the corpus's own relevance floor, so a weak match is not a citation. Touches no other key, so it composes with a prompt the flow builds itself.
+    kind: action
+    language: go
+    protocols: [proc]
+    handler: github.com/dreplyai/go-assistant/flowdsl.corpusRetrieveHandler
+    icon: lucide:library
+    color: "#0ea5e9"
+    tags: [rag, corpus, search, citations]
+    settings_schema:
+      type: object
+      required: [corpus]
+      x-ui:
+        order: [corpus, topK, minScore, outputKey, queryKey, gateKey, filter, failOnSearchError]
+      properties:
+        corpus:
+          type: string
+          title: Corpus
+          x-order: 0
+          description: Name of a registered corpus (corpus.Register). Not an index name — the corpus supplies the floor, the field labels and the rewriter as well.
+        topK:
+          type: integer
+          title: Top K
+          x-order: 1
+          description: Overrides the corpus default. Leave unset to inherit it, which is what keeps the number in one place.
+        minScore:
+          type: number
+          title: Minimum score
+          x-order: 2
+          description: Overrides the corpus relevance floor. Leave unset to inherit it. A hit below the floor is not a weak citation — it is not a citation, because the model treats anything it is handed as relevant.
+        outputKey:
+          type: string
+          title: Output key
+          x-order: 3
+          default: evidence
+          description: The one packet key this node writes.
+        queryKey:
+          type: string
+          title: Query key
+          x-order: 4
+          description: Read the query from this input key instead of the last user message. For flows that rewrite the question first.
+        gateKey:
+          type: string
+          title: Gate key
+          x-order: 5
+          description: Skip retrieval unless this input key is truthy. Whether a turn deserves a lookup is a domain question; the node only honours the answer, and records skipping as an outcome rather than an empty result.
+        filter:
+          type: object
+          title: Payload filter
+          x-order: 6
+          description: 'Equality filter on payload fields, e.g. {"language":"en"}. Needs a payload index on each filtered field.'
+        failOnSearchError:
+          type: boolean
+          title: Fail on search error
+          x-order: 7
+          default: false
+          description: By default an unavailable index degrades to no citations rather than failing the chat.
+    inputs:
+      - name: Packet
+        description: Any packet. `messages[]` is read when no queryKey is set.
+    outputs:
+      - name: Evidence
+        description: "Input packet plus `<outputKey>`: {asked, reason?, query?, hits[]}. `asked:false` with a reason is a first-class outcome — \"why did it not cite anything\" is answerable from the trace."
+        schema:
+          type: object
+          properties:
+            evidence:
+              type: object
+              properties:
+                asked: {type: boolean}
+                reason: {type: string}
+                query: {type: string}
+                hits: {type: array, items: {type: object}}
+
+  - id: redelay/assistant-corpus-context
+    name: Corpus — Ground Prompt
+    summary: Turn one or more evidence packets into a system message and citation cards. Never searches, so it cannot fail on a cold index. Merges into `sources` rather than replacing it, so two corpora can feed one prompt.
+    kind: transform
+    language: go
+    protocols: [proc]
+    handler: github.com/dreplyai/go-assistant/flowdsl.corpusContextHandler
+    icon: lucide:quote
+    color: "#0ea5e9"
+    tags: [rag, corpus, prompt, citations]
+    settings_schema:
+      type: object
+      x-ui:
+        order: [inputKeys, preamble, heading, emitSources, emitActions, skipEmpty]
+      properties:
+        inputKeys:
+          type: array
+          title: Evidence keys
+          x-order: 0
+          items: {type: string}
+          description: Packet keys to read, in order. Defaults to ["evidence"]. List several to ground one prompt on several corpora.
+        preamble:
+          type: string
+          title: Preamble
+          x-order: 1
+          description: Instruction placed before the excerpts. Without one the model gets a bare list of quotes and no guidance about what to do when they do not answer the question.
+        heading:
+          type: string
+          title: Section heading
+          x-order: 2
+          default: Reference excerpts
+        emitSources:
+          type: boolean
+          title: Emit sources
+          x-order: 3
+          default: true
+          description: Merge citation cards into `sources` for the UI to render.
+        emitActions:
+          type: boolean
+          title: Emit actions
+          x-order: 4
+          default: true
+          description: Lift `action` blocks carried on a citation into `actions`, deduped by (type, id).
+        skipEmpty:
+          type: boolean
+          title: Skip when empty
+          x-order: 5
+          default: true
+          description: With no surviving evidence, leave `messages` untouched. An empty excerpt section reads to the model as "the documentation contains nothing on this" — a much stronger claim than "we retrieved nothing".
+    inputs:
+      - name: Evidence
+        description: Packet carrying one or more evidence keys.
+    outputs:
+      - name: Grounded
+        description: "Packet with a system message prepended to `messages`, `sources` merged, and `grounded` recording whether anything was injected."
+        schema:
+          type: object
+          properties:
+            messages: {type: array, items: {type: object}}
+            sources: {type: array, items: {type: object}}
+            grounded: {type: boolean}

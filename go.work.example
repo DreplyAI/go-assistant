@@ -15,10 +15,19 @@
 //
 // Before pushing, verify the build BOTH ways: with go.work present, and with it
 // moved aside. Only the second one proves the pin is real.
+//
+// Known gap while go-modules is in the use block: `go build` passes without
+// this file, `go test` does not — corpus_pair_test.go needs
+// search.SetCurrentForTest, which is unreleased. Closes when go-modules is
+// tagged and the pin bumped.
 
 go 1.25.0
 
 use (
 	.
 	../go-assistant-core
+	// go-modules is here too while corpus/ needs search changes that are not
+	// tagged yet — currently SetCurrentForTest, without which nothing that
+	// retrieves can be tested outside a live Qdrant. Remove once released.
+	../redelay/go-modules
 )

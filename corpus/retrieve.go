@@ -13,6 +13,16 @@ import (
 // the run — should check for it rather than treating it as a hard error.
 var ErrNotReady = errors.New("corpus: search service not ready")
 
+// ErrNotRegistered means the corpus name is not in the registry.
+//
+// A sentinel rather than a bare message because the two ways to get here need
+// different responses and look identical in a log otherwise: a misspelled name
+// in a flow is a config bug, while a correctly-named corpus whose module is
+// opt-in and not enabled is one environment variable. Reporting both as
+// "retrieval failed" sends an operator to look at the vector store, which is
+// working fine.
+var ErrNotRegistered = errors.New("corpus: not registered")
+
 // Request is one retrieval.
 type Request struct {
 	Query string
@@ -47,7 +57,7 @@ type Request struct {
 func Retrieve(ctx context.Context, corpusName string, r Request) ([]Citation, error) {
 	c, ok := Get(corpusName)
 	if !ok {
-		return nil, fmt.Errorf("corpus: %q is not registered", corpusName)
+		return nil, fmt.Errorf("%w: %q", ErrNotRegistered, corpusName)
 	}
 	svc := search.Current()
 	if svc == nil {

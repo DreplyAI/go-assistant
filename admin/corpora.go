@@ -128,6 +128,16 @@ type testQueryRequest struct {
 	// "use the corpus setting", which is the point — an operator moves this
 	// until the right rows survive, then changes the declaration.
 	MinScore float32 `json:"minScore"`
+
+	// Raw skips the corpus's query rewriter.
+	//
+	// Defaults to false, i.e. the tool measures what RETRIEVAL does. It
+	// previously always skipped it, silently: an operator tuned a threshold
+	// against scores for the text they typed while the assistant embedded
+	// something a model had rewritten, so the numbers on screen were for a
+	// different query than the one production runs. Raw is still worth having —
+	// comparing the two is how you see whether the rewriter earns its latency.
+	Raw bool `json:"raw"`
 }
 
 // scoredHit is one result, with whether the floor kept it.
@@ -167,11 +177,18 @@ func (m *Module) handleCorpusTestQuery(w http.ResponseWriter, r *http.Request) {
 		topK = c.TopK
 	}
 
-	// Deliberately NOT corpus.Retrieve: that applies the floor and returns
-	// only survivors, which is right for the assistant and useless here. The
-	// question an operator has is "what did the floor throw away", so this
-	// over-fetches and labels each hit instead.
-	hits, err := svc.Search(r.Context(), c.Name, search.Query{Text: body.Query, Limit: topK * 4})
+	// Still not corpus.Retrieve — that returns only survivors, which is right
+	// for the assistant and useless here: the operator's question is "what did
+	// the floor throw away". So this over-fetches and labels each hit.
+	//
+	// But it now runs the corpus's rewriter first, exactly as Retrieve would,
+	// because a threshold tuned against un-rewritten scores is tuned against a
+	// query production never issues.
+	embedded := body.Query
+	if c.Rewriter != nil && !body.Raw {
+		embedded = c.Rewriter.Rewrite(r.Context(), body.Query)
+	}
+	hits, err := svc.Search(r.Context(), c.Name, search.Query{Text: embedded, Limit: topK * 4})
 	if err != nil {
 		httputil.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -189,8 +206,13 @@ func (m *Module) handleCorpusTestQuery(w http.ResponseWriter, r *http.Request) {
 		out = append(out, scoredHit{Kept: keep, Hit: card})
 	}
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{
-		"corpus":   c.Name,
-		"query":    body.Query,
+		"corpus": c.Name,
+		"query":  body.Query,
+		// What was actually embedded. Equal to `query` unless a rewriter ran —
+		// and when they differ, seeing both is the only way to tell a bad floor
+		// from a bad rewrite.
+		"embedded":  embedded,
+		"rewritten": embedded != body.Query,
 		"minScore": floor,
 		"topK":     topK,
 		"kept":     kept,

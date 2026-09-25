@@ -76,6 +76,44 @@ func (m *Module) Routes(r modules.Router) {
 			modules.Summary("Retrieve with the floor applied, showing dropped hits"),
 		)
 
+		// Tenants — the multi-tenant registry. Each tenant is a
+		// separate assistant (own flow, corpus, inbox scoping)
+		// selected per request via X-Assistant-Site / ?site= / the
+		// TenantResolver seam. The default tenant is env-configured
+		// and implicit — it never appears in these listings.
+		g.Handle("GET", "/tenants", http.HandlerFunc(m.handleListTenants),
+			modules.Summary("List assistant tenants"),
+			modules.Response(200, "Registered tenants", TenantListResponse{}),
+			modules.Security("BearerAuth"),
+		)
+		g.Handle("POST", "/tenants", http.HandlerFunc(m.handleCreateTenant),
+			modules.Summary("Create an assistant tenant"),
+			modules.Body(TenantCreateInput{}),
+			modules.Response(201, "Tenant created", assistant.Tenant{}),
+			modules.Response(400, "Invalid key / body", modules.RedelayErrorResponse{}),
+			modules.Response(409, "Key already exists", modules.RedelayErrorResponse{}),
+			modules.Security("BearerAuth"),
+		)
+		g.Handle("GET", "/tenants/{key}", http.HandlerFunc(m.handleGetTenant),
+			modules.Summary("Fetch tenant by key"),
+			modules.Response(200, "Tenant", assistant.Tenant{}),
+			modules.Response(404, "Not found", modules.RedelayErrorResponse{}),
+			modules.Security("BearerAuth"),
+		)
+		g.Handle("PATCH", "/tenants/{key}", http.HandlerFunc(m.handleUpdateTenant),
+			modules.Summary("Update tenant fields (key is immutable)"),
+			modules.Body(assistant.TenantUpdate{}),
+			modules.Response(200, "Updated tenant", assistant.Tenant{}),
+			modules.Response(404, "Not found", modules.RedelayErrorResponse{}),
+			modules.Security("BearerAuth"),
+		)
+		g.Handle("DELETE", "/tenants/{key}", http.HandlerFunc(m.handleDeleteTenant),
+			modules.Summary("Delete a tenant (chats/handoffs history is kept)"),
+			modules.Response(204, "Deleted", nil),
+			modules.Response(404, "Not found", modules.RedelayErrorResponse{}),
+			modules.Security("BearerAuth"),
+		)
+
 		g.Handle("POST", "/reset", http.HandlerFunc(m.handleReset),
 			modules.Summary("Reset the assistant flow to one of the embedded templates"),
 			modules.Description(
@@ -111,6 +149,7 @@ func (m *Module) handleListChats(w http.ResponseWriter, r *http.Request) {
 	filter := chats.ListFilter{
 		FlowID:       q.Get("flowId"),
 		VariantLabel: q.Get("variantLabel"),
+		Tenant:       q.Get("tenant"), // optional; empty = all tenants
 	}
 	if uid := q.Get("userId"); uid != "" {
 		if oid, err := primitive.ObjectIDFromHex(uid); err == nil {
@@ -210,7 +249,10 @@ func (m *Module) handleListHandoffs(w http.ResponseWriter, r *http.Request) {
 			limit = n
 		}
 	}
-	items, next, err := svc.List(r.Context(), status, limit, q.Get("cursor"))
+	items, next, err := svc.ListFiltered(r.Context(), handoff.ListFilter{
+		Status: status,
+		Tenant: q.Get("tenant"), // optional; empty = all tenants
+	}, limit, q.Get("cursor"))
 	if err != nil {
 		httputil.Error(w, http.StatusInternalServerError, "list handoffs failed")
 		return

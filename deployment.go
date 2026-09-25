@@ -33,7 +33,14 @@ func (m *Module) ensureDeployment(ctx context.Context) error {
 // the framework helper — kept here only so SSE can write
 // `m.resolveVariant(...)` without threading the store through.
 func (m *Module) resolveVariant(ctx context.Context, meta map[string]any) (*flowstore.ResolvedDeployment, error) {
-	return flowstore.ResolveDeployment(ctx, m.flowexec.Store(), m.cfg.DeploymentID, meta, nil, m.roleChecker)
+	return m.resolveVariantFor(ctx, m.cfg.DeploymentID, meta)
+}
+
+// resolveVariantFor is resolveVariant against an explicit deployment
+// id — the per-tenant path. The default tenant's id is
+// m.cfg.DeploymentID, so both paths share one implementation.
+func (m *Module) resolveVariantFor(ctx context.Context, deploymentID string, meta map[string]any) (*flowstore.ResolvedDeployment, error) {
+	return flowstore.ResolveDeployment(ctx, m.flowexec.Store(), deploymentID, meta, nil, m.roleChecker)
 }
 
 // userIDHex returns the hex string form of a Mongo ObjectID, or ""

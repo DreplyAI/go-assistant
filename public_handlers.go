@@ -26,6 +26,7 @@ import (
 // prng-driven pick, fine for the very first mount before a session
 // has been minted.
 func (m *Module) handleConfig(w http.ResponseWriter, r *http.Request) {
+	tenant := m.tenantForRequest(r)
 	sessionID := strings.TrimSpace(r.URL.Query().Get("sessionId"))
 	meta := map[string]any{}
 	if sessionID != "" {
@@ -42,9 +43,10 @@ func (m *Module) handleConfig(w http.ResponseWriter, r *http.Request) {
 		// With a real session the sticky path wins; prng is unused.
 		prng = rand.Float64
 	}
-	resolved, rerr := flowstore.ResolveDeployment(r.Context(), m.flowexec.Store(), m.cfg.DeploymentID, meta, prng, m.roleChecker)
+	deploymentID := m.deploymentIDFor(tenant)
+	resolved, rerr := flowstore.ResolveDeployment(r.Context(), m.flowexec.Store(), deploymentID, meta, prng, m.roleChecker)
 	caps := AssistantCapabilities{}
-	flowID := m.cfg.FlowID
+	flowID := m.flowIDFor(tenant)
 	activeVariant := ""
 	if rerr == nil && resolved != nil && resolved.Version != nil {
 		caps = capabilitiesFromWorkflow(resolved.Version.Document)
@@ -53,18 +55,21 @@ func (m *Module) handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Back-compat: HandoffEnabled is true when the active variant's
-	// flow has the node AND the service is wired AND env allows it.
-	// Any of the three missing hides the button.
-	handoffEnabled := caps.Handoff && m.handoff != nil && m.cfg.HandoffEnabled
+	// flow has the node AND the service is wired AND config allows it
+	// (env default, per-tenant override). Any of the three missing
+	// hides the button.
+	handoffEnabled := caps.Handoff && m.handoff != nil && m.handoffEnabledFor(tenant)
 	httputil.WriteJSON(w, http.StatusOK, ConfigResponse{
-		DeploymentID:     m.cfg.DeploymentID,
-		ActiveVariant:    activeVariant,
-		FlowID:           flowID,
-		FlowName:         "Project Assistant",
-		HandoffEnabled:   handoffEnabled,
-		AnonymousAllowed: m.cfg.AnonymousAllowed,
-		ChatTTLDays:      m.cfg.ChatTTLDays,
-		Capabilities:     caps,
+		Tenant:             tenant.Key,
+		DeploymentID:       deploymentID,
+		ActiveVariant:      activeVariant,
+		FlowID:             flowID,
+		FlowName:           "Project Assistant",
+		HandoffEnabled:     handoffEnabled,
+		AnonymousAllowed:   m.anonymousAllowedFor(tenant),
+		ChatTTLDays:        m.cfg.ChatTTLDays,
+		SuggestedQuestions: tenant.SuggestedQuestions,
+		Capabilities:       caps,
 	})
 }
 
@@ -94,6 +99,14 @@ func (m *Module) handleChatByMe(w http.ResponseWriter, r *http.Request) {
 		httputil.Error(w, http.StatusInternalServerError, "chat lookup failed")
 		return
 	}
+	// Tenant scoping: a session created under tenant A is invisible
+	// through tenant B's widget. Existing (pre-multi-tenant) chats
+	// carry an empty tenant and default-tenant requests resolve to
+	// "", so old data keeps working unchanged.
+	if c.Tenant != m.tenantForRequest(r).Key {
+		httputil.Error(w, http.StatusNotFound, "chat not found")
+		return
+	}
 
 	resp := ChatResponse{
 		SessionID:        c.SessionID,
@@ -115,7 +128,8 @@ func (m *Module) handleChatByMe(w http.ResponseWriter, r *http.Request) {
 // authenticated (per cfg.AnonymousAllowed). Calls handoff.Service
 // which persists + publishes the event.
 func (m *Module) handleHandoff(w http.ResponseWriter, r *http.Request) {
-	if !m.cfg.HandoffEnabled || m.handoff == nil {
+	tenant := m.tenantForRequest(r)
+	if !m.handoffEnabledFor(tenant) || m.handoff == nil {
 		httputil.Error(w, http.StatusServiceUnavailable, "handoff disabled")
 		return
 	}
@@ -133,7 +147,7 @@ func (m *Module) handleHandoff(w http.ResponseWriter, r *http.Request) {
 			userID = oid
 		}
 	}
-	if !authed && !m.cfg.AnonymousAllowed {
+	if !authed && !m.anonymousAllowedFor(tenant) {
 		httputil.Error(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
@@ -145,6 +159,7 @@ func (m *Module) handleHandoff(w http.ResponseWriter, r *http.Request) {
 
 	rec, err := m.handoff.Request(r.Context(), handoff.RequestInput{
 		SessionID: body.SessionID,
+		Tenant:    tenant.Key,
 		UserID:    userID,
 		Email:     body.Email,
 		Phone:     body.Phone,

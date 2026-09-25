@@ -45,11 +45,17 @@ func (m *Module) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Tenant resolution — explicit key (header/query) → resolver seam
+	// → default (env config). With no tenants registered this always
+	// returns the default tenant and the handler behaves exactly as
+	// it did single-tenant.
+	tenant := m.tenantForRequest(r)
+
 	// Anonymous gate — authentication is optional, but when the
 	// admin disabled anonymous chat we require a JWT. Same rule as
 	// the handoff endpoint for consistency.
 	claims, authed := auth.ClaimsFromContext(r.Context())
-	if !authed && !m.cfg.AnonymousAllowed {
+	if !authed && !m.anonymousAllowedFor(tenant) {
 		httputil.Error(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
@@ -62,6 +68,12 @@ func (m *Module) handleChat(w http.ResponseWriter, r *http.Request) {
 		sessionID = "sess-" + uuid.NewString()
 	}
 	w.Header().Set("X-Assistant-Session-Id", sessionID)
+
+	// Per-tenant per-session rate limit. 0 = unlimited, the default.
+	if !m.rl.Allow(tenant.Key+"|"+sessionID, tenant.RateLimitPerMinute) {
+		httputil.Error(w, http.StatusTooManyRequests, "rate limit exceeded — try again in a minute")
+		return
+	}
 
 	// Resolve auth subject for chat attribution. Empty OID when anon.
 	// For anonymous callers derive an "anon-<client-ip>" handle so
@@ -85,10 +97,11 @@ func (m *Module) handleChat(w http.ResponseWriter, r *http.Request) {
 	// the module's thin shim. Sticky bucket keyed by session_id so
 	// the same session always lands on the same variant across
 	// restarts and containers.
-	resolved, err := m.resolveVariant(ctx, map[string]any{
+	deploymentID := m.deploymentIDFor(tenant)
+	resolved, err := m.resolveVariantFor(ctx, deploymentID, map[string]any{
 		"session_id":   sessionID,
 		"user_id":      userIDHex(userID),
-		"assistant_id": m.cfg.DeploymentID,
+		"assistant_id": deploymentID,
 	})
 	if err != nil {
 		if errors.Is(err, flowstore.ErrNotFound) || errors.Is(err, flowstore.ErrNoRoute) {
@@ -105,7 +118,7 @@ func (m *Module) handleChat(w http.ResponseWriter, r *http.Request) {
 	// Persist the chat shell + last user message. Idempotent on
 	// session id so reconnecting clients append to the same row.
 	if m.chats != nil {
-		_, err := m.chats.CreateIfAbsent(ctx, sessionID, resolved.FlowID, flowDoc.VersionHash,
+		_, err := m.chats.CreateIfAbsentTenant(ctx, tenant.Key, sessionID, resolved.FlowID, flowDoc.VersionHash,
 			variantLabel, userID, anonID, nil)
 		if err != nil {
 			m.logger.Warn("assistant: CreateIfAbsent", zap.Error(err))
@@ -133,6 +146,14 @@ func (m *Module) handleChat(w http.ResponseWriter, r *http.Request) {
 		m.cfg.InputKey: msgs,
 	}
 	meta := map[string]any{"session_id": sessionID}
+	if tenant.Key != "" {
+		meta["tenant"] = tenant.Key
+	}
+	// docs_index lets a shared RAG flow template the corpus per
+	// tenant instead of hard-coding one index per flow copy.
+	if di := m.docsIndexFor(tenant); di != "" {
+		meta["docs_index"] = di
+	}
 	if !userID.IsZero() {
 		meta["user_id"] = userID.Hex()
 	} else if anonID != "" {

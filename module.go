@@ -89,6 +89,20 @@ type Module struct {
 	// reference it — comes from these providers. See extension.go.
 	indexProviders    []IndexEntityProvider
 	templateProviders []TemplateProvider
+
+	// Multi-tenancy. tenantReg caches every registered tenant
+	// (Mongo-loaded + programmatic); tenantStore is nil on DB-less
+	// deployments; tenantResolvers are host-app seams discovered in
+	// Configure that map a request → tenant key. With zero tenants
+	// and zero resolvers every request lands on the default tenant
+	// and the module behaves exactly like the single-tenant kernel.
+	tenantReg       *tenantRegistry
+	tenantStore     *TenantStore
+	tenantResolvers []TenantResolver
+
+	// rl enforces per-tenant per-session chat rate limits. Always
+	// non-nil; tenants with RateLimitPerMinute==0 bypass it.
+	rl *sessionRateLimiter
 }
 
 // IndexEntities aggregates entities from every IndexEntityProvider
@@ -159,17 +173,20 @@ func New(deps modules.ModuleDeps) (*Module, error) {
 	}
 	cfg := DefaultConfig()
 	m := &Module{
-		IRBase:   modules.MustLoadIR(moduleYAML),
-		cfg:      cfg,
-		logger:   logger,
-		flowexec: fx,
-		bus:      deps.EventBus,
+		IRBase:    modules.MustLoadIR(moduleYAML),
+		cfg:       cfg,
+		logger:    logger,
+		flowexec:  fx,
+		bus:       deps.EventBus,
+		tenantReg: newTenantRegistry(),
+		rl:        newSessionRateLimiter(),
 	}
 	// Persistence — nil DB means in-memory-only deployment. Chat
 	// history + handoffs are simply not durable in that case; the
 	// SSE stream still works and end users don't notice.
 	if deps.DB != nil {
 		m.db = deps.DB
+		m.tenantStore = NewTenantStore(deps.DB)
 		m.chats = chats.NewService(deps.DB, chats.Options{
 			TTL: time.Duration(cfg.ChatTTLDays) * 24 * time.Hour,
 		})
@@ -234,7 +251,13 @@ func (m *Module) Startup(ctx context.Context) error {
 	}
 	// A deployment must exist before the first chat lands — the SSE
 	// handler resolves the active variant through it on every turn.
-	return m.ensureDeployment(ctx)
+	if err := m.ensureDeployment(ctx); err != nil {
+		return err
+	}
+	// Hydrate the tenant registry from Mongo and ensure each tenant's
+	// deployment. Non-fatal: a failed load degrades to default-only.
+	m.loadTenants(ctx)
+	return nil
 }
 
 func (m *Module) Shutdown(_ context.Context) error { return nil }
@@ -283,6 +306,13 @@ func (m *Module) Configure(registry *modules.Registry) error {
 		if p, ok := mod.(TemplateProvider); ok {
 			m.templateProviders = append(m.templateProviders, p)
 		}
+		if p, ok := mod.(TenantResolver); ok {
+			m.tenantResolvers = append(m.tenantResolvers, p)
+		}
+	}
+	if m.logger != nil && len(m.tenantResolvers) > 0 {
+		m.logger.Info("assistant: discovered tenant resolvers",
+			zap.Int("resolvers", len(m.tenantResolvers)))
 	}
 	if m.logger != nil && (len(m.indexProviders) > 0 || len(m.templateProviders) > 0) {
 		m.logger.Info("assistant: discovered knowledge-pack extensions",

@@ -176,6 +176,11 @@ type ChatResponse struct {
 // everything it needs for A/B telemetry — tag every message with
 // the variant it ran through without a second round-trip.
 type ConfigResponse struct {
+	// Tenant is the resolved tenant key ("" = default tenant), so
+	// the widget can tag telemetry and confirm which assistant it
+	// is talking to. Omitted for the default tenant — the wire
+	// shape v0.2.x widgets see is byte-identical.
+	Tenant string `json:"tenant,omitempty"`
 	// DeploymentID is the named binding the module runs against.
 	DeploymentID string `json:"deploymentId"`
 	// ActiveVariant is the label the current session bucketed into
@@ -187,10 +192,14 @@ type ConfigResponse struct {
 	// variant label.
 	FlowID           string                `json:"flowId"`
 	FlowName         string                `json:"flowName,omitempty"`
-	HandoffEnabled   bool                  `json:"handoffEnabled"`
-	AnonymousAllowed bool                  `json:"anonymousAllowed"`
-	ChatTTLDays      int                   `json:"chatTtlDays"`
-	Capabilities     AssistantCapabilities `json:"capabilities"`
+	HandoffEnabled   bool `json:"handoffEnabled"`
+	AnonymousAllowed bool `json:"anonymousAllowed"`
+	ChatTTLDays      int  `json:"chatTtlDays"`
+	// SuggestedQuestions are per-tenant conversation starters the
+	// widget can render before the first message. Empty for the
+	// default tenant unless the host sets them via tenant config.
+	SuggestedQuestions []string              `json:"suggestedQuestions,omitempty"`
+	Capabilities       AssistantCapabilities `json:"capabilities"`
 }
 
 // AssistantCapabilities is derived from the published flow document.

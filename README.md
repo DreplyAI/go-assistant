@@ -35,6 +35,26 @@ Admin surface (`./admin/`, mount only on admin-api):
 - `GET /admin/chats`, `GET /admin/chats/{id}` — chat browsing
 - `POST /admin/assistant/reset` — reseed flow from named template
 
+## Multi-tenancy (v0.3.0)
+
+One backend can serve a separate assistant per **tenant** — own flow
+(and prompt), own docs corpus/index, own handoff-inbox scoping,
+optional per-tenant rate limit and config overrides. Tenants live in
+the `assistant_tenants` collection (admin CRUD under
+`/admin/assistant/tenants`) or are registered programmatically via
+`Module.RegisterTenant`. Per-request selection, in order:
+
+1. Explicit key — `X-Assistant-Site` header or `?site=` query.
+2. A host-app `TenantResolver` (any registered module implementing
+   `ResolveTenant(r *http.Request) string`, discovered at Configure).
+3. The **default tenant** — the `ASSISTANT_*` env config below.
+
+No tenants + no resolver = exactly the single-tenant v0.2.x
+behaviour; existing chats/handoffs (empty tenant field) belong to the
+default tenant. Each tenant gets an auto-created flowexec deployment
+(`<deployment>--<key>` → stable variant → its flow); publish the
+tenant's flow via Studio/flowexec to bring it live.
+
 ## Env vars
 
 | Var | Default | Purpose |

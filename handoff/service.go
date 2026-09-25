@@ -73,7 +73,10 @@ func (s *Service) EnsureIndexes(ctx context.Context) error {
 // RequestInput is the shape handlers pass to Request. UserID is optional.
 type RequestInput struct {
 	SessionID string
-	UserID    primitive.ObjectID
+	// Tenant is the assistant-tenant key the request arrived under.
+	// Empty = default tenant.
+	Tenant string
+	UserID primitive.ObjectID
 	Email     string
 	Phone     string
 	Reason    string
@@ -118,6 +121,7 @@ func (s *Service) Request(ctx context.Context, in RequestInput) (*HandoffRequest
 	rec := HandoffRequest{
 		ChatID:     chatID,
 		SessionID:  in.SessionID,
+		Tenant:     in.Tenant,
 		UserID:     in.UserID,
 		Email:      email,
 		Phone:      strings.TrimSpace(in.Phone),
@@ -141,6 +145,7 @@ func (s *Service) Request(ctx context.Context, in RequestInput) (*HandoffRequest
 			HandoffID:   rec.GetID().Hex(),
 			ChatID:      chatID.Hex(),
 			SessionID:   in.SessionID,
+			Tenant:      in.Tenant,
 			Email:       email,
 			Phone:       rec.Phone,
 			Reason:      rec.Reason,
@@ -161,9 +166,24 @@ func (s *Service) Request(ctx context.Context, in RequestInput) (*HandoffRequest
 
 // List pages handoffs newest-first with an optional status filter.
 func (s *Service) List(ctx context.Context, status Status, limit int, cursor string) ([]*HandoffRequest, string, error) {
+	return s.ListFiltered(ctx, ListFilter{Status: status}, limit, cursor)
+}
+
+// ListFilter narrows a handoff listing. Zero values mean "no filter";
+// like chats.ListFilter, an empty Tenant means "all tenants".
+type ListFilter struct {
+	Status Status
+	Tenant string
+}
+
+// ListFiltered pages handoffs newest-first with status + tenant filters.
+func (s *Service) ListFiltered(ctx context.Context, f ListFilter, limit int, cursor string) ([]*HandoffRequest, string, error) {
 	filter := bson.M{}
-	if status != "" {
-		filter["status"] = status
+	if f.Status != "" {
+		filter["status"] = f.Status
+	}
+	if f.Tenant != "" {
+		filter["tenant"] = f.Tenant
 	}
 	return s.store.List(ctx, record.ListOptions{Filter: filter, Limit: limit, Cursor: cursor})
 }

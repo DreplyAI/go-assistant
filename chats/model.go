@@ -43,6 +43,12 @@ type Chat struct {
 	// header so the client can persist it.
 	SessionID string `bson:"session_id"      json:"sessionId"`
 
+	// Tenant is the assistant-tenant key this chat belongs to. Empty
+	// means the default (env-configured) tenant — which is also what
+	// every pre-multi-tenant document decodes to, so existing data
+	// keeps working without a migration.
+	Tenant string `bson:"tenant,omitempty" json:"tenant,omitempty"`
+
 	// UserID is set when the caller is authenticated. Anonymous
 	// chats leave it empty; AnonID below captures the client-side
 	// handle instead. ObjectID's JSON encoding always emits a

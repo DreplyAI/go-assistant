@@ -109,6 +109,15 @@ func (s *Service) EnsureIndexes(ctx context.Context) error {
 // time anyway, but the caller should skip it explicitly so admin
 // logs show the intent.
 func (s *Service) CreateIfAbsent(ctx context.Context, sessionID, flowID, versionHash, variantLabel string, userID primitive.ObjectID, anonID string, meta map[string]any) (*Chat, error) {
+	return s.CreateIfAbsentTenant(ctx, "", sessionID, flowID, versionHash, variantLabel, userID, anonID, meta)
+}
+
+// CreateIfAbsentTenant is CreateIfAbsent with a tenant stamp. The
+// tenant key is set on first insert only (like the flow/variant
+// stamps) — a chat never migrates between tenants. Empty tenant =
+// the default tenant, and the field is omitted from the document so
+// pre-multi-tenant rows and default-tenant rows look identical.
+func (s *Service) CreateIfAbsentTenant(ctx context.Context, tenant, sessionID, flowID, versionHash, variantLabel string, userID primitive.ObjectID, anonID string, meta map[string]any) (*Chat, error) {
 	if sessionID == "" {
 		return nil, errors.New("chats: sessionID is required")
 	}
@@ -134,6 +143,11 @@ func (s *Service) CreateIfAbsent(ctx context.Context, sessionID, flowID, version
 	// empty "anon_id":"" field.
 	if anonID != "" {
 		setOnInsert["anon_id"] = anonID
+	}
+	// Same rationale as anon_id: default-tenant chats carry no tenant
+	// key so they're indistinguishable from pre-multi-tenant rows.
+	if tenant != "" {
+		setOnInsert["tenant"] = tenant
 	}
 	update := bson.M{
 		"$setOnInsert": setOnInsert,
@@ -252,6 +266,9 @@ func (s *Service) List(ctx context.Context, filter ListFilter, limit int, cursor
 	if filter.VariantLabel != "" {
 		q["variant_label"] = filter.VariantLabel
 	}
+	if filter.Tenant != "" {
+		q["tenant"] = filter.Tenant
+	}
 	if cursor != "" {
 		oid, err := primitive.ObjectIDFromHex(cursor)
 		if err == nil {
@@ -289,4 +306,9 @@ type ListFilter struct {
 	UserID       primitive.ObjectID
 	FlowID       string
 	VariantLabel string
+	// Tenant narrows to one tenant's chats. Empty means "all
+	// tenants" (the admin default) — filtering for exactly the
+	// default tenant isn't expressible here on purpose: its rows
+	// carry no tenant key, matching pre-multi-tenant data.
+	Tenant string
 }

@@ -58,6 +58,11 @@ type HandoffRequest struct {
 	ChatID    primitive.ObjectID `bson:"chat_id"     json:"chatId"`
 	SessionID string             `bson:"session_id"  json:"sessionId"`
 
+	// Tenant is the assistant-tenant key the handoff was filed
+	// under. Empty = default tenant (and every pre-multi-tenant
+	// record), so existing inbox data keeps working unchanged.
+	Tenant string `bson:"tenant,omitempty" json:"tenant,omitempty"`
+
 	// UserID set when the caller was authenticated at request time.
 	UserID primitive.ObjectID `bson:"user_id,omitempty" json:"userId,omitempty"`
 
@@ -89,6 +94,7 @@ type HandoffRequestedPayload struct {
 	HandoffID  string   `json:"handoffId"`
 	ChatID     string   `json:"chatId"`
 	SessionID  string   `json:"sessionId"`
+	Tenant     string   `json:"tenant,omitempty"`
 	UserID     string   `json:"userId,omitempty"`
 	Email      string   `json:"email"`
 	Phone      string   `json:"phone,omitempty"`

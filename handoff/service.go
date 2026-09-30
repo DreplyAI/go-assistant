@@ -204,12 +204,20 @@ type UpdateStatusInput struct {
 	ContactedBy primitive.ObjectID
 }
 
-// UpdateStatus advances the handoff through its lifecycle. When the new status
-// is `contacted` we stamp ContactedAt + ContactedBy.
+// UpdateStatus advances the handoff through its lifecycle and/or saves notes.
+// An empty Status leaves the status alone (a notes-only save used to write
+// status "" and drop the handoff out of every tab). When the new status is
+// `contacted` we stamp ContactedAt + ContactedBy.
 func (s *Service) UpdateStatus(ctx context.Context, id primitive.ObjectID, in UpdateStatusInput) (*HandoffRequest, error) {
-	set := bson.M{"status": in.Status}
+	set := bson.M{}
+	if in.Status != "" {
+		set["status"] = in.Status
+	}
 	if in.Notes != "" {
 		set["notes"] = in.Notes
+	}
+	if len(set) == 0 {
+		return s.GetByID(ctx, id)
 	}
 	if in.Status == StatusContacted {
 		set["contacted_at"] = s.now()

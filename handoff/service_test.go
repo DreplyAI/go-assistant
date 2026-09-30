@@ -236,6 +236,30 @@ func TestUpdateStatus_StampsContacted(t *testing.T) {
 	}
 }
 
+// TestUpdateStatus_NotesOnlyKeepsStatus — the admin's "Save notes" sends no
+// status; it must not wipe the one the handoff has.
+func TestUpdateStatus_NotesOnlyKeepsStatus(t *testing.T) {
+	_, hSvc, _ := fixture(t)
+	ctx := context.Background()
+
+	rec, _ := hSvc.Request(ctx, handoff.RequestInput{SessionID: "s2", Email: "n@b.c"})
+	if _, err := hSvc.UpdateStatus(ctx, rec.GetID(), handoff.UpdateStatusInput{Status: handoff.StatusContacted}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := hSvc.UpdateStatus(ctx, rec.GetID(), handoff.UpdateStatusInput{Notes: "waiting for their reply"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != handoff.StatusContacted || got.Notes != "waiting for their reply" {
+		t.Fatalf("status %q notes %q — a notes-only save must keep the status", got.Status, got.Notes)
+	}
+	// nothing to change: returns the handoff as it is
+	same, err := hSvc.UpdateStatus(ctx, rec.GetID(), handoff.UpdateStatusInput{})
+	if err != nil || same.Status != handoff.StatusContacted {
+		t.Fatalf("empty update: %v %+v", err, same)
+	}
+}
+
 // TestRequest_NoBus — event publish is best-effort. A nil bus means
 // persistence still works, the event just doesn't fire.
 func TestRequest_NoBus(t *testing.T) {

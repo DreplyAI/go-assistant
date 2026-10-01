@@ -30,7 +30,7 @@ func (m *Module) Routes(r modules.Router) {
 
 		g.Handle("GET", "/chats", http.HandlerFunc(m.handleListChats),
 			modules.Summary("List assistant chats"),
-			modules.Description("Filters: userId, flowId, variantLabel, tenant; view=all|handoffs|noanswer (the Conversations tabs). The first page carries total (this view) and counts (every view). Cursor is opaque — pass nextCursor back."),
+			modules.Description("Filters: userId, flowId, variantLabel, tenant; view=all|handoffs|noanswer (the Conversations tabs); q = text in any message (applies to every view and count). The first page carries total (this view) and counts (every view). Cursor is opaque — pass nextCursor back."),
 			modules.Response(200, "Paginated list", ChatListResponse{}),
 			modules.Security("BearerAuth"),
 		)
@@ -150,6 +150,10 @@ func (m *Module) handleListChats(w http.ResponseWriter, r *http.Request) {
 		FlowID:       q.Get("flowId"),
 		VariantLabel: q.Get("variantLabel"),
 		Tenant:       q.Get("tenant"), // optional; empty = all tenants
+		Search:       strings.TrimSpace(q.Get("q")),
+	}
+	if r := []rune(filter.Search); len(r) > 200 {
+		filter.Search = string(r[:200])
 	}
 	if uid := q.Get("userId"); uid != "" {
 		if oid, err := primitive.ObjectIDFromHex(uid); err == nil {

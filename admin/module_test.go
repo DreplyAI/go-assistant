@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/dreplyai/go-assistant"
@@ -330,5 +331,46 @@ func TestListChats_Views(t *testing.T) {
 	}
 	if len(all.Handoffs) != 4 {
 		t.Errorf("page handoffs = %d, want 4", len(all.Handoffs))
+	}
+}
+
+// TestListChats_Search — q matches any message, case-insensitively and
+// literally, and narrows every view and count.
+func TestListChats_Search(t *testing.T) {
+	adm, asst := newAdminFixture(t)
+	ctx := context.Background()
+	cs := asst.Chats()
+	seed := map[string][]string{
+		"s-tape":    {"The SEAM tape is peeling", ""},
+		"s-invoice": {"Can you fix my invoice?", "I can't change an invoice myself."},
+		"s-dots":    {"is a.b the same as axb?", "No."},
+	}
+	for sid, msgs := range seed {
+		if _, err := cs.CreateIfAbsent(ctx, sid, "assistant", "h", "", primitive.NilObjectID, "", nil); err != nil {
+			t.Fatalf("seed %s: %v", sid, err)
+		}
+		_, _ = cs.AppendMessage(ctx, sid, chats.Message{Role: "user", Content: msgs[0]}, "")
+		if msgs[1] != "" {
+			_, _ = cs.AppendMessage(ctx, sid, chats.Message{Role: "assistant", Content: msgs[1]}, "")
+		}
+	}
+	search := func(q, view string) admin.ChatListResponse {
+		w := httptest.NewRecorder()
+		adm.HandlerListChats()(w, httptest.NewRequest(http.MethodGet, "/assistant/chats?view="+view+"&q="+url.QueryEscape(q), nil))
+		var resp admin.ChatListResponse
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
+		return resp
+	}
+	if r := search("seam", ""); len(r.Items) != 1 || r.Items[0].SessionID != "s-tape" || r.Counts["all"] != 1 || r.Counts["noanswer"] != 1 {
+		t.Errorf("seam: %d items, counts %v", len(r.Items), r.Counts)
+	}
+	if r := search("myself", ""); len(r.Items) != 1 || r.Items[0].SessionID != "s-invoice" {
+		t.Errorf("an answer's text should match too: %d items", len(r.Items))
+	}
+	if r := search("a.b", ""); len(r.Items) != 1 || r.Items[0].SessionID != "s-dots" {
+		t.Errorf("q is literal, not a pattern: %d items", len(r.Items))
+	}
+	if r := search("invoice", "noanswer"); len(r.Items) != 0 || r.Total == nil || *r.Total != 0 {
+		t.Errorf("search applies within the view: %d items", len(r.Items))
 	}
 }

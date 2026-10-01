@@ -3,6 +3,7 @@ package chats
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -290,6 +291,9 @@ func (f ListFilter) query() bson.M {
 	if f.Unanswered {
 		q["messages.role"] = bson.M{"$ne": "assistant"}
 	}
+	if f.Search != "" {
+		q["messages.content"] = bson.M{"$regex": regexp.QuoteMeta(f.Search), "$options": "i"}
+	}
 	return q
 }
 
@@ -408,4 +412,7 @@ type ListFilter struct {
 	Unlinked *Links
 	// Unanswered keeps only chats without an assistant message.
 	Unanswered bool
+	// Search keeps chats with a message containing this text
+	// (case-insensitive, literal — not a pattern).
+	Search string
 }

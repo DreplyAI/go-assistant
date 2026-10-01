@@ -12,8 +12,14 @@ import (
 type ChatListResponse struct {
 	Items      []*chats.Chat `json:"items"`
 	NextCursor string        `json:"nextCursor,omitempty"`
-	// Total counts every matching chat; set on the first page only.
+	// Total counts every chat in the requested view; first page only.
 	Total *int64 `json:"total,omitempty"`
+	// Counts per view (all / handoffs / noanswer); first page only.
+	Counts map[string]int64 `json:"counts,omitempty"`
+	// Handoffs of this page's chats, and each chat's handoff status by
+	// chat id — so the list can badge chats without loading every handoff.
+	Handoffs      []*handoff.HandoffRequest `json:"handoffs,omitempty"`
+	HandoffStatus map[string]string         `json:"handoffStatus,omitempty"`
 }
 
 // HandoffListResponse is the GET /admin/assistant/handoffs body.

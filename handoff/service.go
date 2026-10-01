@@ -13,6 +13,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // Service persists HandoffRequests and publishes the
@@ -186,6 +187,62 @@ func (s *Service) ListFiltered(ctx context.Context, f ListFilter, limit int, cur
 		filter["tenant"] = f.Tenant
 	}
 	return s.store.List(ctx, record.ListOptions{Filter: filter, Limit: limit, Cursor: cursor})
+}
+
+// Links returns the chats tied to handoffs in any of these statuses:
+// their session ids and the handoffs' own ids. Empty tenant = all tenants.
+func (s *Service) Links(ctx context.Context, tenant string, statuses ...Status) (*chats.Links, error) {
+	filter := bson.M{"status": bson.M{"$in": statuses}}
+	if tenant != "" {
+		filter["tenant"] = tenant
+	}
+	cur, err := s.store.Collection().Find(ctx, filter,
+		options.Find().SetProjection(bson.M{"_id": 1, "session_id": 1}))
+	if err != nil {
+		return nil, err
+	}
+	var rows []struct {
+		ID        primitive.ObjectID `bson:"_id"`
+		SessionID string             `bson:"session_id"`
+	}
+	if err := cur.All(ctx, &rows); err != nil {
+		return nil, err
+	}
+	out := &chats.Links{Sessions: []string{}, HandoffIDs: []primitive.ObjectID{}}
+	for _, r := range rows {
+		out.HandoffIDs = append(out.HandoffIDs, r.ID)
+		if r.SessionID != "" {
+			out.Sessions = append(out.Sessions, r.SessionID)
+		}
+	}
+	return out, nil
+}
+
+// ForChats returns the handoffs tied to these chats (by session id or by
+// the chat's handoff id), newest first.
+func (s *Service) ForChats(ctx context.Context, l chats.Links) ([]*HandoffRequest, error) {
+	out := []*HandoffRequest{}
+	if len(l.Sessions) == 0 && len(l.HandoffIDs) == 0 {
+		return out, nil
+	}
+	sessions, ids := l.Sessions, l.HandoffIDs
+	if sessions == nil {
+		sessions = []string{}
+	}
+	if ids == nil {
+		ids = []primitive.ObjectID{}
+	}
+	cur, err := s.store.Collection().Find(ctx, bson.M{"$or": []bson.M{
+		{"session_id": bson.M{"$in": sessions}},
+		{"_id": bson.M{"$in": ids}},
+	}}, options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}))
+	if err != nil {
+		return nil, err
+	}
+	if err := cur.All(ctx, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // GetByID fetches a single handoff.

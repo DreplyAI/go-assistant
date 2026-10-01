@@ -30,7 +30,7 @@ func (m *Module) Routes(r modules.Router) {
 
 		g.Handle("GET", "/chats", http.HandlerFunc(m.handleListChats),
 			modules.Summary("List assistant chats"),
-			modules.Description("Filters: userId, flowId, variantLabel. Cursor is the last-seen chat _id."),
+			modules.Description("Filters: userId, flowId, variantLabel, tenant; view=all|handoffs|noanswer (the Conversations tabs). The first page carries total (this view) and counts (every view). Cursor is opaque — pass nextCursor back."),
 			modules.Response(200, "Paginated list", ChatListResponse{}),
 			modules.Security("BearerAuth"),
 		)
@@ -162,18 +162,99 @@ func (m *Module) handleListChats(w http.ResponseWriter, r *http.Request) {
 			limit = n
 		}
 	}
-	items, next, err := svc.List(r.Context(), filter, limit, q.Get("cursor"))
+	ctx := r.Context()
+	views, err := m.chatViews(ctx, filter)
+	if err != nil {
+		httputil.Error(w, http.StatusInternalServerError, "list chats failed")
+		return
+	}
+	view := q.Get("view")
+	if _, ok := views[view]; !ok {
+		view = ChatViewAll
+	}
+	items, next, err := svc.List(ctx, views[view], limit, q.Get("cursor"))
 	if err != nil {
 		httputil.Error(w, http.StatusInternalServerError, "list chats failed")
 		return
 	}
 	resp := ChatListResponse{Items: items, NextCursor: next}
 	if q.Get("cursor") == "" {
-		if n, err := svc.Count(r.Context(), filter); err == nil {
+		counts := map[string]int64{}
+		for name, f := range views {
+			if n, err := svc.Count(ctx, f); err == nil {
+				counts[name] = n
+			}
+		}
+		if n, ok := counts[view]; ok {
 			resp.Total = &n
 		}
+		resp.Counts = counts
 	}
+	m.attachHandoffs(ctx, &resp)
 	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// The Conversations tabs. A chat's state comes from its handoff, so each
+// view is the base filter plus handoff links:
+//   - handoffs: a pending or contacted handoff;
+//   - noanswer: no assistant reply and no pending/contacted/resolved
+//     handoff (a dismissed handoff falls back to the reply check).
+const (
+	ChatViewAll      = "all"
+	ChatViewHandoffs = "handoffs"
+	ChatViewNoAnswer = "noanswer"
+)
+
+func (m *Module) chatViews(ctx context.Context, base chats.ListFilter) (map[string]chats.ListFilter, error) {
+	open, handled := &chats.Links{}, &chats.Links{}
+	if hs := m.asst.Handoff(); hs != nil {
+		var err error
+		if open, err = hs.Links(ctx, base.Tenant, handoff.StatusPending, handoff.StatusContacted); err != nil {
+			return nil, err
+		}
+		if handled, err = hs.Links(ctx, base.Tenant, handoff.StatusPending, handoff.StatusContacted, handoff.StatusResolved); err != nil {
+			return nil, err
+		}
+	}
+	withOpen, noAnswer := base, base
+	withOpen.Linked = open
+	noAnswer.Unlinked, noAnswer.Unanswered = handled, true
+	return map[string]chats.ListFilter{
+		ChatViewAll:      base,
+		ChatViewHandoffs: withOpen,
+		ChatViewNoAnswer: noAnswer,
+	}, nil
+}
+
+// attachHandoffs adds the handoffs of the page's chats (the detail pane
+// needs them) and each chat's handoff status (the list badges need it,
+// even where a filter withholds the handoff record itself).
+func (m *Module) attachHandoffs(ctx context.Context, resp *ChatListResponse) {
+	hs := m.asst.Handoff()
+	if hs == nil || len(resp.Items) == 0 {
+		return
+	}
+	var links chats.Links
+	for _, c := range resp.Items {
+		links.Sessions = append(links.Sessions, c.SessionID)
+		if !c.HandoffID.IsZero() {
+			links.HandoffIDs = append(links.HandoffIDs, c.HandoffID)
+		}
+	}
+	hos, err := hs.ForChats(ctx, links)
+	if err != nil || len(hos) == 0 {
+		return
+	}
+	resp.Handoffs = hos
+	resp.HandoffStatus = map[string]string{}
+	for _, c := range resp.Items {
+		for _, h := range hos { // newest first: the first match wins
+			if h.ID == c.HandoffID || (h.SessionID != "" && h.SessionID == c.SessionID) {
+				resp.HandoffStatus[c.ID.Hex()] = string(h.Status)
+				break
+			}
+		}
+	}
 }
 
 func (m *Module) handleGetChat(w http.ResponseWriter, r *http.Request) {

@@ -277,7 +277,42 @@ func (f ListFilter) query() bson.M {
 	if f.Tenant != "" {
 		q["tenant"] = f.Tenant
 	}
+	if f.Linked != nil {
+		q["$or"] = []bson.M{
+			{"session_id": bson.M{"$in": f.Linked.sessions()}},
+			{"handoff_id": bson.M{"$in": f.Linked.ids()}},
+		}
+	}
+	if f.Unlinked != nil {
+		q["session_id"] = bson.M{"$nin": f.Unlinked.sessions()}
+		q["handoff_id"] = bson.M{"$nin": f.Unlinked.ids()}
+	}
+	if f.Unanswered {
+		q["messages.role"] = bson.M{"$ne": "assistant"}
+	}
 	return q
+}
+
+// Links identifies chats tied to a set of handoffs — a handoff points at
+// its chat by session id, a chat at its handoff by handoff id.
+type Links struct {
+	Sessions   []string
+	HandoffIDs []primitive.ObjectID
+}
+
+// sessions / ids never return nil: Mongo rejects $in / $nin of null.
+func (l *Links) sessions() []string {
+	if l.Sessions == nil {
+		return []string{}
+	}
+	return l.Sessions
+}
+
+func (l *Links) ids() []primitive.ObjectID {
+	if l.HandoffIDs == nil {
+		return []primitive.ObjectID{}
+	}
+	return l.HandoffIDs
 }
 
 func (s *Service) List(ctx context.Context, filter ListFilter, limit int, cursor string) ([]*Chat, string, error) {
@@ -367,4 +402,10 @@ type ListFilter struct {
 	// default tenant isn't expressible here on purpose: its rows
 	// carry no tenant key, matching pre-multi-tenant data.
 	Tenant string
+	// Linked keeps only chats tied to one of these handoffs.
+	Linked *Links
+	// Unlinked drops chats tied to any of these handoffs.
+	Unlinked *Links
+	// Unanswered keeps only chats without an assistant message.
+	Unanswered bool
 }

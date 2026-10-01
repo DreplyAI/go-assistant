@@ -288,9 +288,10 @@ func (m *Module) pumpChatFrames(
 					// product, add to cart…). Forward as-is; the
 					// widget's action registry decides how to render
 					// and what happens on click.
+					sources := extractSources(ev.Payload)
 					write(ChatFrame{
 						Content: content,
-						Sources: extractSources(ev.Payload),
+						Sources: sources,
 						Actions: extractActions(ev.Payload),
 						RunID:   runID,
 					})
@@ -301,6 +302,8 @@ func (m *Module) pumpChatFrames(
 						if _, err := m.chats.AppendMessage(ctx, sessionID, chats.Message{
 							Role:    "assistant",
 							Content: content,
+							// what the answer cited — the admin shows it next to the transcript
+							Sources: chats.SourcesFrom(sources),
 						}, runID); err != nil {
 							m.logger.Warn("assistant: persist reply", zap.Error(err))
 						}

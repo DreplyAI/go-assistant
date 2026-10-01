@@ -197,3 +197,43 @@ func TestAttachHandoff(t *testing.T) {
 		t.Errorf("HandoffID: got %v, want %v", c.HandoffID, hoid)
 	}
 }
+
+// TestSourcesFrom — only display fields survive; a card that carried the
+// chunk text (it must never be stored) loses it; empty cards are dropped.
+func TestSourcesFrom(t *testing.T) {
+	got := chats.SourcesFrom([]map[string]any{
+		{"id": "how-to-return", "kind": "doc", "title": "How to start a return", "url": "https://x/help/returns", "score": 0.86, "text": "SECRET CHUNK", "snippet": "also secret"},
+		{"title": "Exchanges", "path": "help/exchanges.md", "score": 1},
+		{"text": "only text — nothing to show"},
+	})
+	if len(got) != 2 {
+		t.Fatalf("want 2 sources, got %+v", got)
+	}
+	if got[0].Title != "How to start a return" || got[0].URL != "https://x/help/returns" || got[0].Score != 0.86 || got[0].ID != "how-to-return" {
+		t.Errorf("first source mangled: %+v", got[0])
+	}
+	if got[1].Path != "help/exchanges.md" || got[1].Score != 1 {
+		t.Errorf("second source mangled: %+v", got[1])
+	}
+	if chats.SourcesFrom(nil) != nil {
+		t.Error("no cards must be nil (omitted in JSON/BSON)")
+	}
+}
+
+// TestAppendMessage_KeepsSources — sources round-trip through Mongo.
+func TestAppendMessage_KeepsSources(t *testing.T) {
+	svc, _ := newSvc(t)
+	ctx := context.Background()
+	_, _ = svc.CreateIfAbsent(ctx, "sess-src", "assistant", "h", "", primitive.NilObjectID, "", nil)
+	src := chats.SourcesFrom([]map[string]any{{"title": "Warranty", "url": "https://x/w", "score": 0.79}})
+	if _, err := svc.AppendMessage(ctx, "sess-src", chats.Message{Role: "assistant", Content: "yes [1]", Sources: src}, "r1"); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	c, err := svc.GetBySessionID(ctx, "sess-src")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(c.Messages) != 1 || len(c.Messages[0].Sources) != 1 || c.Messages[0].Sources[0].Title != "Warranty" || c.Messages[0].Sources[0].Score != 0.79 {
+		t.Fatalf("sources not stored: %+v", c.Messages)
+	}
+}

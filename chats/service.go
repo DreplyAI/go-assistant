@@ -255,20 +255,31 @@ func (s *Service) AttachHandoff(ctx context.Context, sessionID string, handoffID
 
 // List pages chats newest-first, with optional user + flow filters.
 // Powers the admin /assistant/chats endpoint.
-func (s *Service) List(ctx context.Context, filter ListFilter, limit int, cursor string) ([]*Chat, string, error) {
+// Count returns how many chats match the filter (all pages).
+func (s *Service) Count(ctx context.Context, filter ListFilter) (int64, error) {
+	return s.col.CountDocuments(ctx, filter.query())
+}
+
+// query is the Mongo filter shared by List and Count.
+func (f ListFilter) query() bson.M {
 	q := bson.M{}
-	if !filter.UserID.IsZero() {
-		q["user_id"] = filter.UserID
+	if !f.UserID.IsZero() {
+		q["user_id"] = f.UserID
 	}
-	if filter.FlowID != "" {
-		q["flow_id"] = filter.FlowID
+	if f.FlowID != "" {
+		q["flow_id"] = f.FlowID
 	}
-	if filter.VariantLabel != "" {
-		q["variant_label"] = filter.VariantLabel
+	if f.VariantLabel != "" {
+		q["variant_label"] = f.VariantLabel
 	}
-	if filter.Tenant != "" {
-		q["tenant"] = filter.Tenant
+	if f.Tenant != "" {
+		q["tenant"] = f.Tenant
 	}
+	return q
+}
+
+func (s *Service) List(ctx context.Context, filter ListFilter, limit int, cursor string) ([]*Chat, string, error) {
+	q := filter.query()
 	if cursor != "" {
 		oid, err := primitive.ObjectIDFromHex(cursor)
 		if err == nil {

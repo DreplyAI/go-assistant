@@ -12,6 +12,8 @@ import (
 type ChatListResponse struct {
 	Items      []*chats.Chat `json:"items"`
 	NextCursor string        `json:"nextCursor,omitempty"`
+	// Total counts every matching chat; set on the first page only.
+	Total *int64 `json:"total,omitempty"`
 }
 
 // HandoffListResponse is the GET /admin/assistant/handoffs body.

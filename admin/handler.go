@@ -167,7 +167,13 @@ func (m *Module) handleListChats(w http.ResponseWriter, r *http.Request) {
 		httputil.Error(w, http.StatusInternalServerError, "list chats failed")
 		return
 	}
-	httputil.WriteJSON(w, http.StatusOK, ChatListResponse{Items: items, NextCursor: next})
+	resp := ChatListResponse{Items: items, NextCursor: next}
+	if q.Get("cursor") == "" {
+		if n, err := svc.Count(r.Context(), filter); err == nil {
+			resp.Total = &n
+		}
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (m *Module) handleGetChat(w http.ResponseWriter, r *http.Request) {

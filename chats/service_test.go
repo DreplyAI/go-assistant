@@ -237,3 +237,20 @@ func TestAppendMessage_KeepsSources(t *testing.T) {
 		t.Fatalf("sources not stored: %+v", c.Messages)
 	}
 }
+
+// TestCount_MatchesListFilter — Count sees every page, narrowed by tenant.
+func TestCount_MatchesListFilter(t *testing.T) {
+	svc, _ := newSvc(t)
+	ctx := context.Background()
+	for i, tenant := range []string{"demo", "demo", "demo", "other"} {
+		if _, err := svc.CreateIfAbsentTenant(ctx, tenant, "cnt-"+string(rune('a'+i)), "assistant", "h", "", primitive.NilObjectID, "", nil); err != nil {
+			t.Fatalf("create %d: %v", i, err)
+		}
+	}
+	if n, err := svc.Count(ctx, chats.ListFilter{Tenant: "demo"}); err != nil || n != 3 {
+		t.Errorf("demo count = %d, %v; want 3", n, err)
+	}
+	if n, err := svc.Count(ctx, chats.ListFilter{}); err != nil || n != 4 {
+		t.Errorf("all count = %d, %v; want 4", n, err)
+	}
+}

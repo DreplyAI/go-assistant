@@ -254,3 +254,81 @@ func TestCount_MatchesListFilter(t *testing.T) {
 		t.Errorf("all count = %d, %v; want 4", n, err)
 	}
 }
+
+// walk pages through every chat and fails on a repeat.
+func walk(t *testing.T, svc *chats.Service, limit int, cursor string) map[string]bool {
+	t.Helper()
+	seen := map[string]bool{}
+	for first := true; first || cursor != ""; first = false {
+		items, next, err := svc.List(context.Background(), chats.ListFilter{}, limit, cursor)
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		for _, c := range items {
+			if seen[c.SessionID] {
+				t.Errorf("chat %s listed twice", c.SessionID)
+			}
+			seen[c.SessionID] = true
+		}
+		cursor = next
+	}
+	return seen
+}
+
+// TestList_CursorFollowsLastAt — an old chat that gets a new message moves
+// to the top; paging must still return every chat exactly once.
+func TestList_CursorFollowsLastAt(t *testing.T) {
+	svc, setNow := newSvc(t)
+	ctx := context.Background()
+	for i := 0; i < 6; i++ {
+		setNow(time.Date(2025, 1, 1, 12, i, 0, 0, time.UTC))
+		if _, err := svc.CreateIfAbsent(ctx, "move-"+string(rune('a'+i)), "assistant", "h", "", primitive.NilObjectID, "", nil); err != nil {
+			t.Fatalf("create %d: %v", i, err)
+		}
+	}
+	// the oldest chat (smallest _id) is now the most recent
+	setNow(time.Date(2025, 1, 1, 13, 0, 0, 0, time.UTC))
+	if _, err := svc.AppendMessage(ctx, "move-a", chats.Message{Role: "user", Content: "again"}, ""); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	items, _, _ := svc.List(ctx, chats.ListFilter{}, 1, "")
+	if len(items) != 1 || items[0].SessionID != "move-a" {
+		t.Fatalf("newest first: got %v", items)
+	}
+	if seen := walk(t, svc, 2, ""); len(seen) != 6 {
+		t.Errorf("walked %d chats, want 6", len(seen))
+	}
+}
+
+// TestList_CursorTiesOnLastAt — chats sharing a last_at page by _id.
+func TestList_CursorTiesOnLastAt(t *testing.T) {
+	svc, setNow := newSvc(t)
+	ctx := context.Background()
+	setNow(time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC))
+	for i := 0; i < 5; i++ {
+		if _, err := svc.CreateIfAbsent(ctx, "tie-"+string(rune('a'+i)), "assistant", "h", "", primitive.NilObjectID, "", nil); err != nil {
+			t.Fatalf("create %d: %v", i, err)
+		}
+	}
+	if seen := walk(t, svc, 2, ""); len(seen) != 5 {
+		t.Errorf("walked %d chats, want 5", len(seen))
+	}
+}
+
+// TestList_LegacyIDCursor — a bare ObjectID cursor (pre-v0.3.4 clients)
+// continues from that chat's position.
+func TestList_LegacyIDCursor(t *testing.T) {
+	svc, setNow := newSvc(t)
+	ctx := context.Background()
+	for i := 0; i < 4; i++ {
+		setNow(time.Date(2025, 1, 1, 12, i, 0, 0, time.UTC))
+		if _, err := svc.CreateIfAbsent(ctx, "leg-"+string(rune('a'+i)), "assistant", "h", "", primitive.NilObjectID, "", nil); err != nil {
+			t.Fatalf("create %d: %v", i, err)
+		}
+	}
+	first, _, _ := svc.List(ctx, chats.ListFilter{}, 2, "")
+	rest := walk(t, svc, 2, first[1].GetID().Hex())
+	if len(rest) != 2 || rest[first[0].SessionID] || rest[first[1].SessionID] {
+		t.Errorf("legacy cursor continued wrong: %v", rest)
+	}
+}

@@ -3,6 +3,8 @@ package chats
 import (
 	"context"
 	"errors"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/redelay/go-framework/crud"
@@ -280,17 +282,16 @@ func (f ListFilter) query() bson.M {
 
 func (s *Service) List(ctx context.Context, filter ListFilter, limit int, cursor string) ([]*Chat, string, error) {
 	q := filter.query()
-	if cursor != "" {
-		oid, err := primitive.ObjectIDFromHex(cursor)
-		if err == nil {
-			q["_id"] = bson.M{"$lt": oid}
-		}
+	if after, ok := s.cursorClause(ctx, cursor); ok {
+		q = bson.M{"$and": []bson.M{q, after}}
 	}
 	if limit <= 0 {
 		limit = 20
 	}
 	cur, err := s.col.Find(ctx, q,
-		options.Find().SetSort(bson.D{{Key: "last_at", Value: -1}}).SetLimit(int64(limit+1)),
+		options.Find().
+			SetSort(bson.D{{Key: "last_at", Value: -1}, {Key: "_id", Value: -1}}).
+			SetLimit(int64(limit+1)),
 	)
 	if err != nil {
 		return nil, "", err
@@ -306,10 +307,54 @@ func (s *Service) List(ctx context.Context, filter ListFilter, limit int, cursor
 	}
 	next := ""
 	if len(out) > limit {
-		next = out[limit-1].ID.Hex()
+		last := out[limit-1]
+		next = encodeCursor(last.LastAt, last.ID)
 		out = out[:limit]
 	}
 	return out, next, cur.Err()
+}
+
+// The list cursor is the position of the last row in the sort order —
+// (last_at, _id) — so a chat whose last_at moves past older ids is neither
+// skipped nor repeated. Encoded as "<unix ms>_<hex id>" (Mongo stores
+// dates at millisecond precision, so the equality below is exact).
+func encodeCursor(at time.Time, id primitive.ObjectID) string {
+	return strconv.FormatInt(at.UnixMilli(), 10) + "_" + id.Hex()
+}
+
+// cursorClause turns a cursor into "rows after it". A bare ObjectID hex
+// (the pre-v0.3.4 cursor) is resolved to that chat's position.
+func (s *Service) cursorClause(ctx context.Context, cursor string) (bson.M, bool) {
+	if cursor == "" {
+		return nil, false
+	}
+	var at time.Time
+	var id primitive.ObjectID
+	if ms, hex, ok := strings.Cut(cursor, "_"); ok {
+		n, err1 := strconv.ParseInt(ms, 10, 64)
+		oid, err2 := primitive.ObjectIDFromHex(hex)
+		if err1 != nil || err2 != nil {
+			return nil, false
+		}
+		at, id = time.UnixMilli(n).UTC(), oid
+	} else {
+		oid, err := primitive.ObjectIDFromHex(cursor)
+		if err != nil {
+			return nil, false
+		}
+		var row struct {
+			LastAt time.Time `bson:"last_at"`
+		}
+		if err := s.col.FindOne(ctx, bson.M{"_id": oid}, options.FindOne().SetProjection(bson.M{"last_at": 1})).Decode(&row); err != nil {
+			// the chat expired: fall back to id order, as before
+			return bson.M{"_id": bson.M{"$lt": oid}}, true
+		}
+		at, id = row.LastAt, oid
+	}
+	return bson.M{"$or": []bson.M{
+		{"last_at": bson.M{"$lt": at}},
+		{"last_at": at, "_id": bson.M{"$lt": id}},
+	}}, true
 }
 
 // ListFilter narrows a List query. Zero values mean "no filter".

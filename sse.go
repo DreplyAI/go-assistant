@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/redelay/go-ai/llm"
 	"net"
 	"net/http"
 	"strings"
@@ -169,6 +170,12 @@ func (m *Module) handleChat(w http.ResponseWriter, r *http.Request) {
 	runInput["meta"] = meta
 
 	// 3. Launch async + subscribe.
+	//
+	// Usage purpose for every LLM call in the run that does not name its own:
+	// the chat node inherits assistant.chat; the guard (guard.user /
+	// guard.assistant) and search (search.query) keep theirs — per-call
+	// labels win over this ambient one. RunAsync carries ctx into the run.
+	ctx = llm.WithUsageContext(ctx, llm.UsageContext{Labels: map[string]string{"purpose": UsagePurpose}})
 	runID, errCh, err := m.flowexec.Executor().RunAsync(ctx, flowexec.RunInput{
 		Workflow:     flowDoc.Document,
 		VersionID:    flowDoc.ID,
@@ -444,3 +451,7 @@ func clientIP(r *http.Request) string {
 	}
 	return host
 }
+
+// UsagePurpose labels the assistant's LLM calls in the go-ai usage ledger
+// (/ai/usage, llm_* metrics) when a flow node does not set its own.
+const UsagePurpose = "assistant.chat"

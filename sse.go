@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/redelay/go-ai/llm"
 	"net"
 	"net/http"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/dreplyai/go-assistant-core/flowrun"
 	"github.com/dreplyai/go-assistant/chats"
 	"github.com/google/uuid"
+	"github.com/redelay/go-ai/llm"
 	"github.com/redelay/go-flowdsl/flowexec"
 	flowsink "github.com/redelay/go-flowdsl/flowexec/sink"
 	flowstore "github.com/redelay/go-flowdsl/flowexec/store"
@@ -91,7 +91,11 @@ func (m *Module) handleChat(w http.ResponseWriter, r *http.Request) {
 		anonID = anonIDFromRequest(r)
 	}
 
-	ctx := r.Context()
+	// A person is waiting for this answer: one model attempt, no backoff and
+	// no Retry-After wait (go-ai retries 429/5xx by default, up to ~60 s).
+	// The failure reaches the client as an error frame at once and the UI
+	// offers "Try again". The run, guard, retrieval and answer all inherit it.
+	ctx := llm.NoRetry(r.Context())
 
 	// 1. Resolve the active deployment variant → (flowID, version).
 	// Delegates to the framework's flowstore.ResolveDeployment via

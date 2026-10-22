@@ -197,3 +197,138 @@ func TestAttachHandoff(t *testing.T) {
 		t.Errorf("HandoffID: got %v, want %v", c.HandoffID, hoid)
 	}
 }
+
+// TestSourcesFrom — only display fields survive; a card that carried the
+// chunk text (it must never be stored) loses it; empty cards are dropped.
+func TestSourcesFrom(t *testing.T) {
+	got := chats.SourcesFrom([]map[string]any{
+		{"id": "how-to-return", "kind": "doc", "title": "How to start a return", "url": "https://x/help/returns", "score": 0.86, "text": "SECRET CHUNK", "snippet": "also secret"},
+		{"title": "Exchanges", "path": "help/exchanges.md", "score": 1},
+		{"text": "only text — nothing to show"},
+	})
+	if len(got) != 2 {
+		t.Fatalf("want 2 sources, got %+v", got)
+	}
+	if got[0].Title != "How to start a return" || got[0].URL != "https://x/help/returns" || got[0].Score != 0.86 || got[0].ID != "how-to-return" {
+		t.Errorf("first source mangled: %+v", got[0])
+	}
+	if got[1].Path != "help/exchanges.md" || got[1].Score != 1 {
+		t.Errorf("second source mangled: %+v", got[1])
+	}
+	if chats.SourcesFrom(nil) != nil {
+		t.Error("no cards must be nil (omitted in JSON/BSON)")
+	}
+}
+
+// TestAppendMessage_KeepsSources — sources round-trip through Mongo.
+func TestAppendMessage_KeepsSources(t *testing.T) {
+	svc, _ := newSvc(t)
+	ctx := context.Background()
+	_, _ = svc.CreateIfAbsent(ctx, "sess-src", "assistant", "h", "", primitive.NilObjectID, "", nil)
+	src := chats.SourcesFrom([]map[string]any{{"title": "Warranty", "url": "https://x/w", "score": 0.79}})
+	if _, err := svc.AppendMessage(ctx, "sess-src", chats.Message{Role: "assistant", Content: "yes [1]", Sources: src}, "r1"); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	c, err := svc.GetBySessionID(ctx, "sess-src")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(c.Messages) != 1 || len(c.Messages[0].Sources) != 1 || c.Messages[0].Sources[0].Title != "Warranty" || c.Messages[0].Sources[0].Score != 0.79 {
+		t.Fatalf("sources not stored: %+v", c.Messages)
+	}
+}
+
+// TestCount_MatchesListFilter — Count sees every page, narrowed by tenant.
+func TestCount_MatchesListFilter(t *testing.T) {
+	svc, _ := newSvc(t)
+	ctx := context.Background()
+	for i, tenant := range []string{"demo", "demo", "demo", "other"} {
+		if _, err := svc.CreateIfAbsentTenant(ctx, tenant, "cnt-"+string(rune('a'+i)), "assistant", "h", "", primitive.NilObjectID, "", nil); err != nil {
+			t.Fatalf("create %d: %v", i, err)
+		}
+	}
+	if n, err := svc.Count(ctx, chats.ListFilter{Tenant: "demo"}); err != nil || n != 3 {
+		t.Errorf("demo count = %d, %v; want 3", n, err)
+	}
+	if n, err := svc.Count(ctx, chats.ListFilter{}); err != nil || n != 4 {
+		t.Errorf("all count = %d, %v; want 4", n, err)
+	}
+}
+
+// walk pages through every chat and fails on a repeat.
+func walk(t *testing.T, svc *chats.Service, limit int, cursor string) map[string]bool {
+	t.Helper()
+	seen := map[string]bool{}
+	for first := true; first || cursor != ""; first = false {
+		items, next, err := svc.List(context.Background(), chats.ListFilter{}, limit, cursor)
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		for _, c := range items {
+			if seen[c.SessionID] {
+				t.Errorf("chat %s listed twice", c.SessionID)
+			}
+			seen[c.SessionID] = true
+		}
+		cursor = next
+	}
+	return seen
+}
+
+// TestList_CursorFollowsLastAt — an old chat that gets a new message moves
+// to the top; paging must still return every chat exactly once.
+func TestList_CursorFollowsLastAt(t *testing.T) {
+	svc, setNow := newSvc(t)
+	ctx := context.Background()
+	for i := 0; i < 6; i++ {
+		setNow(time.Date(2025, 1, 1, 12, i, 0, 0, time.UTC))
+		if _, err := svc.CreateIfAbsent(ctx, "move-"+string(rune('a'+i)), "assistant", "h", "", primitive.NilObjectID, "", nil); err != nil {
+			t.Fatalf("create %d: %v", i, err)
+		}
+	}
+	// the oldest chat (smallest _id) is now the most recent
+	setNow(time.Date(2025, 1, 1, 13, 0, 0, 0, time.UTC))
+	if _, err := svc.AppendMessage(ctx, "move-a", chats.Message{Role: "user", Content: "again"}, ""); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	items, _, _ := svc.List(ctx, chats.ListFilter{}, 1, "")
+	if len(items) != 1 || items[0].SessionID != "move-a" {
+		t.Fatalf("newest first: got %v", items)
+	}
+	if seen := walk(t, svc, 2, ""); len(seen) != 6 {
+		t.Errorf("walked %d chats, want 6", len(seen))
+	}
+}
+
+// TestList_CursorTiesOnLastAt — chats sharing a last_at page by _id.
+func TestList_CursorTiesOnLastAt(t *testing.T) {
+	svc, setNow := newSvc(t)
+	ctx := context.Background()
+	setNow(time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC))
+	for i := 0; i < 5; i++ {
+		if _, err := svc.CreateIfAbsent(ctx, "tie-"+string(rune('a'+i)), "assistant", "h", "", primitive.NilObjectID, "", nil); err != nil {
+			t.Fatalf("create %d: %v", i, err)
+		}
+	}
+	if seen := walk(t, svc, 2, ""); len(seen) != 5 {
+		t.Errorf("walked %d chats, want 5", len(seen))
+	}
+}
+
+// TestList_LegacyIDCursor — a bare ObjectID cursor (pre-v0.3.4 clients)
+// continues from that chat's position.
+func TestList_LegacyIDCursor(t *testing.T) {
+	svc, setNow := newSvc(t)
+	ctx := context.Background()
+	for i := 0; i < 4; i++ {
+		setNow(time.Date(2025, 1, 1, 12, i, 0, 0, time.UTC))
+		if _, err := svc.CreateIfAbsent(ctx, "leg-"+string(rune('a'+i)), "assistant", "h", "", primitive.NilObjectID, "", nil); err != nil {
+			t.Fatalf("create %d: %v", i, err)
+		}
+	}
+	first, _, _ := svc.List(ctx, chats.ListFilter{}, 2, "")
+	rest := walk(t, svc, 2, first[1].GetID().Hex())
+	if len(rest) != 2 || rest[first[0].SessionID] || rest[first[1].SessionID] {
+		t.Errorf("legacy cursor continued wrong: %v", rest)
+	}
+}

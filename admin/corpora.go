@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/dreplyai/go-assistant/corpus"
+	"github.com/redelay/go-ai/llm"
 	"github.com/redelay/go-framework/server/httputil"
 	"github.com/redelay/go-modules/search"
 )
@@ -147,6 +148,8 @@ type scoredHit struct {
 }
 
 func (m *Module) handleCorpusTestQuery(w http.ResponseWriter, r *http.Request) {
+	// An admin is waiting on this test query: one model attempt (see sse.go).
+	ctx := llm.NoRetry(r.Context())
 	name := r.PathValue("name")
 	c, ok := corpus.Get(name)
 	if !ok {
@@ -186,9 +189,9 @@ func (m *Module) handleCorpusTestQuery(w http.ResponseWriter, r *http.Request) {
 	// query production never issues.
 	embedded := body.Query
 	if c.Rewriter != nil && !body.Raw {
-		embedded = c.Rewriter.Rewrite(r.Context(), body.Query)
+		embedded = c.Rewriter.Rewrite(ctx, body.Query)
 	}
-	hits, err := svc.Search(r.Context(), c.Name, search.Query{Text: embedded, Limit: topK * 4})
+	hits, err := svc.Search(ctx, c.Name, search.Query{Text: embedded, Limit: topK * 4})
 	if err != nil {
 		httputil.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -213,10 +216,10 @@ func (m *Module) handleCorpusTestQuery(w http.ResponseWriter, r *http.Request) {
 		// from a bad rewrite.
 		"embedded":  embedded,
 		"rewritten": embedded != body.Query,
-		"minScore": floor,
-		"topK":     topK,
-		"kept":     kept,
-		"results":  out,
+		"minScore":  floor,
+		"topK":      topK,
+		"kept":      kept,
+		"results":   out,
 	})
 }
 

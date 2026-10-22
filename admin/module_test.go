@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/dreplyai/go-assistant"
 	"github.com/dreplyai/go-assistant/admin"
+	"github.com/dreplyai/go-assistant/chats"
 	"github.com/dreplyai/go-assistant/handoff"
 	flowexecmod "github.com/redelay/go-flowdsl/flowexec/module"
 	"github.com/redelay/go-framework/modules"
@@ -236,5 +238,139 @@ func TestResetEndpoint_PickTemplate(t *testing.T) {
 	flow, _ = fx.Store().GetFlow(context.Background(), cfg.FlowID)
 	if flow.PublishedVersionID != prevID {
 		t.Errorf("published version changed after rejected reset")
+	}
+}
+
+// TestListChats_Views — the Conversations tabs: exact counts on the first
+// page, per-view listing, and each chat's handoff status.
+func TestListChats_Views(t *testing.T) {
+	adm, asst := newAdminFixture(t)
+	ctx := context.Background()
+	cs, hs := asst.Chats(), asst.Handoff()
+
+	// sid → (assistant replied?, handoff status or "")
+	seed := []struct {
+		sid     string
+		replied bool
+		status  handoff.Status
+	}{
+		{"v-answered", true, ""},
+		{"v-silent", false, ""},
+		{"v-pending", false, handoff.StatusPending},
+		{"v-taken", true, handoff.StatusContacted},
+		{"v-resolved", false, handoff.StatusResolved},
+		{"v-dismissed", false, handoff.StatusDismissed},
+	}
+	for _, s := range seed {
+		if _, err := cs.CreateIfAbsent(ctx, s.sid, "assistant", "h", "", primitive.NilObjectID, "", nil); err != nil {
+			t.Fatalf("seed %s: %v", s.sid, err)
+		}
+		_, _ = cs.AppendMessage(ctx, s.sid, chats.Message{Role: "user", Content: "q"}, "")
+		if s.replied {
+			_, _ = cs.AppendMessage(ctx, s.sid, chats.Message{Role: "assistant", Content: "a"}, "")
+		}
+		if s.status != "" {
+			h, err := hs.Request(ctx, handoff.RequestInput{SessionID: s.sid, Email: "v@demo.example"})
+			if err != nil {
+				t.Fatalf("handoff %s: %v", s.sid, err)
+			}
+			if s.status != handoff.StatusPending {
+				if _, err := hs.UpdateStatus(ctx, h.ID, handoff.UpdateStatusInput{Status: s.status}); err != nil {
+					t.Fatalf("status %s: %v", s.sid, err)
+				}
+			}
+		}
+	}
+
+	list := func(view string) admin.ChatListResponse {
+		w := httptest.NewRecorder()
+		adm.HandlerListChats()(w, httptest.NewRequest(http.MethodGet, "/assistant/chats?view="+view, nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", view, w.Code, w.Body)
+		}
+		var resp admin.ChatListResponse
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
+		return resp
+	}
+	sids := func(r admin.ChatListResponse) map[string]bool {
+		out := map[string]bool{}
+		for _, c := range r.Items {
+			out[c.SessionID] = true
+		}
+		return out
+	}
+
+	all := list("")
+	if all.Counts["all"] != 6 || all.Counts["handoffs"] != 2 || all.Counts["noanswer"] != 2 {
+		t.Errorf("counts = %v, want all 6 / handoffs 2 / noanswer 2", all.Counts)
+	}
+	if all.Total == nil || *all.Total != 6 {
+		t.Errorf("total = %v, want 6", all.Total)
+	}
+	if got := sids(list("handoffs")); len(got) != 2 || !got["v-pending"] || !got["v-taken"] {
+		t.Errorf("handoffs view = %v", got)
+	}
+	nr := list("noanswer")
+	if got := sids(nr); len(got) != 2 || !got["v-silent"] || !got["v-dismissed"] {
+		t.Errorf("noanswer view = %v", got)
+	}
+	if nr.Total == nil || *nr.Total != 2 {
+		t.Errorf("noanswer total = %v, want 2", nr.Total)
+	}
+	byStatus := map[string]string{}
+	for _, c := range all.Items {
+		if st, ok := all.HandoffStatus[c.ID.Hex()]; ok {
+			byStatus[c.SessionID] = st
+		}
+	}
+	want := map[string]string{"v-pending": "pending", "v-taken": "contacted", "v-resolved": "resolved", "v-dismissed": "dismissed"}
+	for sid, st := range want {
+		if byStatus[sid] != st {
+			t.Errorf("handoffStatus[%s] = %q, want %q", sid, byStatus[sid], st)
+		}
+	}
+	if len(all.Handoffs) != 4 {
+		t.Errorf("page handoffs = %d, want 4", len(all.Handoffs))
+	}
+}
+
+// TestListChats_Search — q matches any message, case-insensitively and
+// literally, and narrows every view and count.
+func TestListChats_Search(t *testing.T) {
+	adm, asst := newAdminFixture(t)
+	ctx := context.Background()
+	cs := asst.Chats()
+	seed := map[string][]string{
+		"s-tape":    {"The SEAM tape is peeling", ""},
+		"s-invoice": {"Can you fix my invoice?", "I can't change an invoice myself."},
+		"s-dots":    {"is a.b the same as axb?", "No."},
+	}
+	for sid, msgs := range seed {
+		if _, err := cs.CreateIfAbsent(ctx, sid, "assistant", "h", "", primitive.NilObjectID, "", nil); err != nil {
+			t.Fatalf("seed %s: %v", sid, err)
+		}
+		_, _ = cs.AppendMessage(ctx, sid, chats.Message{Role: "user", Content: msgs[0]}, "")
+		if msgs[1] != "" {
+			_, _ = cs.AppendMessage(ctx, sid, chats.Message{Role: "assistant", Content: msgs[1]}, "")
+		}
+	}
+	search := func(q, view string) admin.ChatListResponse {
+		w := httptest.NewRecorder()
+		adm.HandlerListChats()(w, httptest.NewRequest(http.MethodGet, "/assistant/chats?view="+view+"&q="+url.QueryEscape(q), nil))
+		var resp admin.ChatListResponse
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
+		return resp
+	}
+	if r := search("seam", ""); len(r.Items) != 1 || r.Items[0].SessionID != "s-tape" || r.Counts["all"] != 1 || r.Counts["noanswer"] != 1 {
+		t.Errorf("seam: %d items, counts %v", len(r.Items), r.Counts)
+	}
+	if r := search("myself", ""); len(r.Items) != 1 || r.Items[0].SessionID != "s-invoice" {
+		t.Errorf("an answer's text should match too: %d items", len(r.Items))
+	}
+	if r := search("a.b", ""); len(r.Items) != 1 || r.Items[0].SessionID != "s-dots" {
+		t.Errorf("q is literal, not a pattern: %d items", len(r.Items))
+	}
+	if r := search("invoice", "noanswer"); len(r.Items) != 0 || r.Total == nil || *r.Total != 0 {
+		t.Errorf("search applies within the view: %d items", len(r.Items))
 	}
 }

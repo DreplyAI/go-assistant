@@ -13,6 +13,7 @@ import (
 	"github.com/dreplyai/go-assistant-core/flowrun"
 	"github.com/dreplyai/go-assistant/chats"
 	"github.com/google/uuid"
+	"github.com/redelay/go-ai/llm"
 	"github.com/redelay/go-flowdsl/flowexec"
 	flowsink "github.com/redelay/go-flowdsl/flowexec/sink"
 	flowstore "github.com/redelay/go-flowdsl/flowexec/store"
@@ -90,7 +91,11 @@ func (m *Module) handleChat(w http.ResponseWriter, r *http.Request) {
 		anonID = anonIDFromRequest(r)
 	}
 
-	ctx := r.Context()
+	// A person is waiting for this answer: one model attempt, no backoff and
+	// no Retry-After wait (go-ai retries 429/5xx by default, up to ~60 s).
+	// The failure reaches the client as an error frame at once and the UI
+	// offers "Try again". The run, guard, retrieval and answer all inherit it.
+	ctx := llm.NoRetry(r.Context())
 
 	// 1. Resolve the active deployment variant → (flowID, version).
 	// Delegates to the framework's flowstore.ResolveDeployment via
@@ -169,6 +174,12 @@ func (m *Module) handleChat(w http.ResponseWriter, r *http.Request) {
 	runInput["meta"] = meta
 
 	// 3. Launch async + subscribe.
+	//
+	// Usage purpose for every LLM call in the run that does not name its own:
+	// the chat node inherits assistant.chat; the guard (guard.user /
+	// guard.assistant) and search (search.query) keep theirs — per-call
+	// labels win over this ambient one. RunAsync carries ctx into the run.
+	ctx = llm.WithUsageContext(ctx, llm.UsageContext{Labels: map[string]string{"purpose": UsagePurpose}})
 	runID, errCh, err := m.flowexec.Executor().RunAsync(ctx, flowexec.RunInput{
 		Workflow:     flowDoc.Document,
 		VersionID:    flowDoc.ID,
@@ -288,9 +299,10 @@ func (m *Module) pumpChatFrames(
 					// product, add to cart…). Forward as-is; the
 					// widget's action registry decides how to render
 					// and what happens on click.
+					sources := extractSources(ev.Payload)
 					write(ChatFrame{
 						Content: content,
-						Sources: extractSources(ev.Payload),
+						Sources: sources,
 						Actions: extractActions(ev.Payload),
 						RunID:   runID,
 					})
@@ -301,6 +313,8 @@ func (m *Module) pumpChatFrames(
 						if _, err := m.chats.AppendMessage(ctx, sessionID, chats.Message{
 							Role:    "assistant",
 							Content: content,
+							// what the answer cited — the admin shows it next to the transcript
+							Sources: chats.SourcesFrom(sources),
 						}, runID); err != nil {
 							m.logger.Warn("assistant: persist reply", zap.Error(err))
 						}
@@ -441,3 +455,7 @@ func clientIP(r *http.Request) string {
 	}
 	return host
 }
+
+// UsagePurpose labels the assistant's LLM calls in the go-ai usage ledger
+// (/ai/usage, llm_* metrics) when a flow node does not set its own.
+const UsagePurpose = "assistant.chat"

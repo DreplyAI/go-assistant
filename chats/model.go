@@ -29,6 +29,58 @@ type Message struct {
 	// produced it — lets admins correlate a conversation turn with
 	// its flow events + LLM calls + cost.
 	RunID string `bson:"run_id,omitempty" json:"runId,omitempty"`
+	// Sources: the citations the visitor saw with this answer (what the
+	// flow stamped as `sources`), kept so an admin can see what an answer
+	// was grounded on. Display fields only — see SourcesFrom.
+	Sources []Source `bson:"sources,omitempty" json:"sources,omitempty"`
+}
+
+// Source is one citation card, as the chat widget renders it.
+type Source struct {
+	ID    string  `bson:"id,omitempty"    json:"id,omitempty"`
+	Kind  string  `bson:"kind,omitempty"  json:"kind,omitempty"`
+	Title string  `bson:"title,omitempty" json:"title,omitempty"`
+	URL   string  `bson:"url,omitempty"   json:"url,omitempty"`
+	Path  string  `bson:"path,omitempty"  json:"path,omitempty"`
+	Score float64 `bson:"score,omitempty" json:"score,omitempty"`
+}
+
+// maxSources caps what one message stores (a flow normally cites 3–5).
+const maxSources = 20
+
+// SourcesFrom keeps the display fields of the citation cards a flow
+// stamped. An explicit whitelist on purpose: a card must never carry the
+// chunk text into storage (some corpora may ground the model but must not
+// be shown or kept — the retrieval node strips `text` for that reason), so
+// anything not listed here is dropped even if a flow put it there.
+func SourcesFrom(cards []map[string]any) []Source {
+	if len(cards) == 0 {
+		return nil
+	}
+	str := func(m map[string]any, k string) string { s, _ := m[k].(string); return s }
+	out := make([]Source, 0, min(len(cards), maxSources))
+	for _, c := range cards {
+		if len(out) == maxSources {
+			break
+		}
+		s := Source{ID: str(c, "id"), Kind: str(c, "kind"), Title: str(c, "title"), URL: str(c, "url"), Path: str(c, "path")}
+		switch v := c["score"].(type) {
+		case float64:
+			s.Score = v
+		case float32:
+			s.Score = float64(v)
+		case int:
+			s.Score = float64(v)
+		}
+		if s.Title == "" && s.URL == "" && s.Path == "" && s.ID == "" {
+			continue // nothing to show
+		}
+		out = append(out, s)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // Chat is the persisted conversation document. The collection is

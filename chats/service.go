@@ -3,6 +3,9 @@ package chats
 import (
 	"context"
 	"errors"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/redelay/go-framework/crud"
@@ -255,31 +258,79 @@ func (s *Service) AttachHandoff(ctx context.Context, sessionID string, handoffID
 
 // List pages chats newest-first, with optional user + flow filters.
 // Powers the admin /assistant/chats endpoint.
-func (s *Service) List(ctx context.Context, filter ListFilter, limit int, cursor string) ([]*Chat, string, error) {
+// Count returns how many chats match the filter (all pages).
+func (s *Service) Count(ctx context.Context, filter ListFilter) (int64, error) {
+	return s.col.CountDocuments(ctx, filter.query())
+}
+
+// query is the Mongo filter shared by List and Count.
+func (f ListFilter) query() bson.M {
 	q := bson.M{}
-	if !filter.UserID.IsZero() {
-		q["user_id"] = filter.UserID
+	if !f.UserID.IsZero() {
+		q["user_id"] = f.UserID
 	}
-	if filter.FlowID != "" {
-		q["flow_id"] = filter.FlowID
+	if f.FlowID != "" {
+		q["flow_id"] = f.FlowID
 	}
-	if filter.VariantLabel != "" {
-		q["variant_label"] = filter.VariantLabel
+	if f.VariantLabel != "" {
+		q["variant_label"] = f.VariantLabel
 	}
-	if filter.Tenant != "" {
-		q["tenant"] = filter.Tenant
+	if f.Tenant != "" {
+		q["tenant"] = f.Tenant
 	}
-	if cursor != "" {
-		oid, err := primitive.ObjectIDFromHex(cursor)
-		if err == nil {
-			q["_id"] = bson.M{"$lt": oid}
+	if f.Linked != nil {
+		q["$or"] = []bson.M{
+			{"session_id": bson.M{"$in": f.Linked.sessions()}},
+			{"handoff_id": bson.M{"$in": f.Linked.ids()}},
 		}
+	}
+	if f.Unlinked != nil {
+		q["session_id"] = bson.M{"$nin": f.Unlinked.sessions()}
+		q["handoff_id"] = bson.M{"$nin": f.Unlinked.ids()}
+	}
+	if f.Unanswered {
+		q["messages.role"] = bson.M{"$ne": "assistant"}
+	}
+	if f.Search != "" {
+		q["messages.content"] = bson.M{"$regex": regexp.QuoteMeta(f.Search), "$options": "i"}
+	}
+	return q
+}
+
+// Links identifies chats tied to a set of handoffs — a handoff points at
+// its chat by session id, a chat at its handoff by handoff id.
+type Links struct {
+	Sessions   []string
+	HandoffIDs []primitive.ObjectID
+}
+
+// sessions / ids never return nil: Mongo rejects $in / $nin of null.
+func (l *Links) sessions() []string {
+	if l.Sessions == nil {
+		return []string{}
+	}
+	return l.Sessions
+}
+
+func (l *Links) ids() []primitive.ObjectID {
+	if l.HandoffIDs == nil {
+		return []primitive.ObjectID{}
+	}
+	return l.HandoffIDs
+}
+
+func (s *Service) List(ctx context.Context, filter ListFilter, limit int, cursor string) ([]*Chat, string, error) {
+	q := filter.query()
+	if after, ok := s.cursorClause(ctx, cursor); ok {
+		q = bson.M{"$and": []bson.M{q, after}}
 	}
 	if limit <= 0 {
 		limit = 20
 	}
 	cur, err := s.col.Find(ctx, q,
-		options.Find().SetSort(bson.D{{Key: "last_at", Value: -1}}).SetLimit(int64(limit+1)),
+		options.Find().
+			SetSort(bson.D{{Key: "last_at", Value: -1}, {Key: "_id", Value: -1}}).
+			SetLimit(int64(limit+1)),
 	)
 	if err != nil {
 		return nil, "", err
@@ -295,10 +346,54 @@ func (s *Service) List(ctx context.Context, filter ListFilter, limit int, cursor
 	}
 	next := ""
 	if len(out) > limit {
-		next = out[limit-1].ID.Hex()
+		last := out[limit-1]
+		next = encodeCursor(last.LastAt, last.ID)
 		out = out[:limit]
 	}
 	return out, next, cur.Err()
+}
+
+// The list cursor is the position of the last row in the sort order —
+// (last_at, _id) — so a chat whose last_at moves past older ids is neither
+// skipped nor repeated. Encoded as "<unix ms>_<hex id>" (Mongo stores
+// dates at millisecond precision, so the equality below is exact).
+func encodeCursor(at time.Time, id primitive.ObjectID) string {
+	return strconv.FormatInt(at.UnixMilli(), 10) + "_" + id.Hex()
+}
+
+// cursorClause turns a cursor into "rows after it". A bare ObjectID hex
+// (the pre-v0.3.4 cursor) is resolved to that chat's position.
+func (s *Service) cursorClause(ctx context.Context, cursor string) (bson.M, bool) {
+	if cursor == "" {
+		return nil, false
+	}
+	var at time.Time
+	var id primitive.ObjectID
+	if ms, hex, ok := strings.Cut(cursor, "_"); ok {
+		n, err1 := strconv.ParseInt(ms, 10, 64)
+		oid, err2 := primitive.ObjectIDFromHex(hex)
+		if err1 != nil || err2 != nil {
+			return nil, false
+		}
+		at, id = time.UnixMilli(n).UTC(), oid
+	} else {
+		oid, err := primitive.ObjectIDFromHex(cursor)
+		if err != nil {
+			return nil, false
+		}
+		var row struct {
+			LastAt time.Time `bson:"last_at"`
+		}
+		if err := s.col.FindOne(ctx, bson.M{"_id": oid}, options.FindOne().SetProjection(bson.M{"last_at": 1})).Decode(&row); err != nil {
+			// the chat expired: fall back to id order, as before
+			return bson.M{"_id": bson.M{"$lt": oid}}, true
+		}
+		at, id = row.LastAt, oid
+	}
+	return bson.M{"$or": []bson.M{
+		{"last_at": bson.M{"$lt": at}},
+		{"last_at": at, "_id": bson.M{"$lt": id}},
+	}}, true
 }
 
 // ListFilter narrows a List query. Zero values mean "no filter".
@@ -311,4 +406,13 @@ type ListFilter struct {
 	// default tenant isn't expressible here on purpose: its rows
 	// carry no tenant key, matching pre-multi-tenant data.
 	Tenant string
+	// Linked keeps only chats tied to one of these handoffs.
+	Linked *Links
+	// Unlinked drops chats tied to any of these handoffs.
+	Unlinked *Links
+	// Unanswered keeps only chats without an assistant message.
+	Unanswered bool
+	// Search keeps chats with a message containing this text
+	// (case-insensitive, literal — not a pattern).
+	Search string
 }

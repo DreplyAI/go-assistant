@@ -5,13 +5,13 @@ go 1.25.0
 require (
 	github.com/dreplyai/go-assistant-core v0.1.0
 	github.com/google/uuid v1.6.0
-	github.com/redelay/go-ai v0.16.0
-	github.com/redelay/go-events v0.8.0
+	github.com/redelay/go-ai v0.17.0
+	github.com/redelay/go-events v0.8.1
 	github.com/redelay/go-flowdsl v0.1.18
-	github.com/redelay/go-flowdsl/flowexec/module v0.2.28
+	github.com/redelay/go-flowdsl/flowexec/module v0.2.29
 	github.com/redelay/go-flowdsl/nodes/core v0.1.0
-	github.com/redelay/go-framework v0.35.2
-	github.com/redelay/go-modules v0.77.0
+	github.com/redelay/go-framework v0.47.0
+	github.com/redelay/go-modules v0.88.1
 	go.mongodb.org/mongo-driver v1.17.9
 	go.uber.org/zap v1.27.1
 	gopkg.in/yaml.v3 v3.0.1

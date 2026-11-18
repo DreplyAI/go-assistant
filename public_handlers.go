@@ -13,6 +13,7 @@ import (
 	"github.com/redelay/go-framework/modules/auth"
 	"github.com/redelay/go-framework/server/httputil"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.uber.org/zap"
 )
 
 // handleConfig returns the assistant's public runtime config. The
@@ -186,4 +187,58 @@ func (m *Module) handleHandoff(w http.ResponseWriter, r *http.Request) {
 		Status:    string(rec.Status),
 		Priority:  string(rec.Priority),
 	})
+}
+
+// handleChatDelete discards one conversation: the transcript and the flow run
+// history that holds the same text.
+//
+// Both halves, because the text is stored twice. `chats` has the transcript;
+// `flow_events` has every node's packet, which after a conversation-carrying
+// flow includes the messages themselves. Deleting one and not the other is
+// the failure this endpoint exists to avoid, so the run ids come back from
+// the chat delete and go straight into the history purge.
+//
+// The purge is best-effort and its failure does NOT fail the request. The
+// transcript — the copy the member can see, and the one that feeds the next
+// turn — is already gone by then, and reporting failure would invite a retry
+// that 404s. A purge that could not run is logged at WARN with the run ids,
+// which is what a later sweep needs; the account-deletion path re-runs the
+// same purge by user id and is the backstop.
+func (m *Module) handleChatDelete(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(r.PathValue("sessionID"))
+	if sessionID == "" {
+		httputil.Error(w, http.StatusBadRequest, "sessionID is required")
+		return
+	}
+	if m.chats == nil {
+		httputil.Error(w, http.StatusNotFound, "chat not found")
+		return
+	}
+
+	var userID primitive.ObjectID
+	if claims, authed := auth.ClaimsFromContext(r.Context()); authed {
+		if oid, err := primitive.ObjectIDFromHex(claims.UserID); err == nil {
+			userID = oid
+		}
+	}
+
+	runIDs, err := m.chats.DeleteSession(r.Context(), sessionID, userID)
+	if errors.Is(err, chats.ErrNotFound) {
+		httputil.Error(w, http.StatusNotFound, "chat not found")
+		return
+	}
+	if err != nil {
+		httputil.Error(w, http.StatusInternalServerError, "chat delete failed")
+		return
+	}
+
+	if len(runIDs) > 0 {
+		if err := m.purgeRunHistory(r.Context(), runIDs); err != nil {
+			m.logger.Warn("assistant: chat deleted but its run history was not",
+				zap.String("session_id", sessionID),
+				zap.Strings("run_ids", runIDs),
+				zap.Error(err))
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

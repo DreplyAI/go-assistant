@@ -180,11 +180,27 @@ func (m *Module) handleChat(w http.ResponseWriter, r *http.Request) {
 	// guard.assistant) and search (search.query) keep theirs — per-call
 	// labels win over this ambient one. RunAsync carries ctx into the run.
 	ctx = llm.WithUsageContext(ctx, llm.UsageContext{Labels: map[string]string{"purpose": UsagePurpose}})
+
+	// AssistantID and UserID are correlation ids on the run — and the ONLY
+	// way a run's telemetry can later be found by the person it belongs to.
+	//
+	// `meta` above puts the id in the run INPUT, which the executor stores in
+	// `flow_events.payload`: a measurement field of a Mongo time-series
+	// collection. A time-series delete may only filter on the metaField, so an
+	// id that travels solely in the payload leaves every event row
+	// unattributable — and a chat's text is in those rows, at every node.
+	// Account deletion then cannot reach it, on any Mongo version, and the
+	// omission is invisible because the run works perfectly.
+	//
+	// These two fields are the metaField (`sink.RunMeta`), so setting them is
+	// what makes `deleteMany({"meta.userId": …})` possible at all.
 	runID, errCh, err := m.flowexec.Executor().RunAsync(ctx, flowexec.RunInput{
 		Workflow:     flowDoc.Document,
 		VersionID:    flowDoc.ID,
 		VersionHash:  flowDoc.VersionHash,
 		VariantLabel: variantLabel,
+		AssistantID:  deploymentID,
+		UserID:       userIDHex(userID),
 		Input:        runInput,
 	})
 	if err != nil {

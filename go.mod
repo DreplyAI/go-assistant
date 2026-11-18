@@ -4,11 +4,13 @@ go 1.25.0
 
 require (
 	github.com/dreplyai/go-assistant-core v0.1.0
+	github.com/go-chi/chi/v5 v5.3.0
 	github.com/google/uuid v1.6.0
 	github.com/redelay/go-ai v0.16.0
 	github.com/redelay/go-events v0.8.0
 	github.com/redelay/go-flowdsl v0.1.18
 	github.com/redelay/go-flowdsl/flowexec/module v0.2.28
+	github.com/redelay/go-flowdsl/flowexec/storage-mongo v0.1.7
 	github.com/redelay/go-flowdsl/nodes/core v0.1.0
 	github.com/redelay/go-framework v0.35.2
 	github.com/redelay/go-modules v0.77.0
@@ -25,7 +27,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/flowdsl/flowdsl-go v0.1.0 // indirect
-	github.com/go-chi/chi/v5 v5.3.0 // indirect
 	github.com/go-faster/city v1.0.1 // indirect
 	github.com/go-faster/errors v0.6.1 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
@@ -40,7 +41,6 @@ require (
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
-	github.com/redelay/go-flowdsl/flowexec/storage-mongo v0.1.6 // indirect
 	github.com/redis/go-redis/v9 v9.18.0 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
 	github.com/shopspring/decimal v1.3.1 // indirect

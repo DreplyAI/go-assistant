@@ -416,3 +416,108 @@ type ListFilter struct {
 	// (case-insensitive, literal — not a pattern).
 	Search string
 }
+
+// Deleting a conversation, and the one thing a caller must not forget.
+//
+// A chat's text is stored TWICE: here, as the transcript, and in the flow
+// run history (`flow_events.payload`), where the executor records every
+// node's packet. Deleting only this document is the shape of bug the
+// deletion inventory in a consuming app exists to prevent — it leaves the
+// same sentences in another collection and reports success.
+//
+// So both methods below RETURN THE RUN IDS they deleted, and the caller is
+// expected to hand them to the flow-history purge
+// (`mongots.PurgeRuns` / `mongots.PurgeUser`). The signature makes the
+// second half of the job visible at the call site rather than leaving it to
+// a comment somewhere.
+
+// DeleteSession removes one chat and returns the flow run ids it referenced.
+//
+// Owner-scoped when the chat has an owner: `userID` must match, so knowing a
+// session id is not enough to erase an authenticated member's conversation.
+// An anonymous chat has no owner to check against and is deleted on the
+// session id alone — the same trust model as reading it back, which is the
+// client's own localStorage handle either way.
+//
+// ErrNotFound when nothing matches, including the case where the chat exists
+// but belongs to someone else: "it is not yours" and "it is not there" are
+// deliberately the same answer, so a caller cannot probe for the existence of
+// another member's session.
+func (s *Service) DeleteSession(ctx context.Context, sessionID string, userID primitive.ObjectID) ([]string, error) {
+	if sessionID == "" {
+		return nil, ErrNotFound
+	}
+	c, err := s.GetBySessionID(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if !c.UserID.IsZero() && c.UserID != userID {
+		return nil, ErrNotFound
+	}
+	runs := runIDsOf(c)
+	if _, err := s.col.DeleteOne(ctx, bson.M{"_id": c.ID}); err != nil {
+		return nil, err
+	}
+	return runs, nil
+}
+
+// DeleteForUser removes every chat belonging to a member and returns all the
+// run ids they referenced.
+//
+// For account deletion. Reads before it deletes, because the run ids are
+// inside the documents being removed and there is no reading them afterwards
+// — the same ordering trap as resolving an email-keyed collection after the
+// account row is gone.
+func (s *Service) DeleteForUser(ctx context.Context, userID primitive.ObjectID) ([]string, error) {
+	if userID.IsZero() {
+		return nil, nil
+	}
+	cur, err := s.col.Find(ctx, bson.M{"user_id": userID})
+	if err != nil {
+		return nil, err
+	}
+	var runs []string
+	seen := map[string]bool{}
+	for cur.Next(ctx) {
+		var c Chat
+		if cur.Decode(&c) != nil {
+			continue
+		}
+		for _, id := range runIDsOf(&c) {
+			if !seen[id] {
+				seen[id] = true
+				runs = append(runs, id)
+			}
+		}
+	}
+	if err := cur.Err(); err != nil {
+		cur.Close(ctx)
+		return nil, err
+	}
+	cur.Close(ctx)
+
+	if _, err := s.col.DeleteMany(ctx, bson.M{"user_id": userID}); err != nil {
+		return runs, err
+	}
+	return runs, nil
+}
+
+// runIDsOf collects the distinct flow run ids a chat's messages reference.
+func runIDsOf(c *Chat) []string {
+	if c == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(c.Messages))
+	for _, m := range c.Messages {
+		if m.RunID == "" || seen[m.RunID] {
+			continue
+		}
+		seen[m.RunID] = true
+		out = append(out, m.RunID)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}

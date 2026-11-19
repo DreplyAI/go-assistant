@@ -86,8 +86,8 @@ github.com/redelay/go-flowdsl v0.1.18 h1:t0uX6mPshqfLbeWvQtZl6H1CBeOQl5q1K0cXezW
 github.com/redelay/go-flowdsl v0.1.18/go.mod h1:KSCh5kc2syh+Chj+g1RO8qGfBxtWqtw0eC50sV+N4hE=
 github.com/redelay/go-flowdsl/flowexec/module v0.2.28 h1:i6+Pkg58eIvQrXLtq71JGRRWHll19YXJFgWQ7ZHS7pM=
 github.com/redelay/go-flowdsl/flowexec/module v0.2.28/go.mod h1:629IfHDR7AtB18Tz3AfQjg2T7rWvfjWXoouN8vop4us=
-github.com/redelay/go-flowdsl/flowexec/storage-mongo v0.1.6 h1:47QRMtUwoXJdz/xMsBqUqzSxL782bgwszUVdwLoy/2k=
-github.com/redelay/go-flowdsl/flowexec/storage-mongo v0.1.6/go.mod h1:HlJ9S3w3E4gFeXLfqzVk6wKQg82HI5z8hUy76hBtBCs=
+github.com/redelay/go-flowdsl/flowexec/storage-mongo v0.1.7 h1:aSlmHeVUwgFL3z+WSKEUlwwFB4WPq8FKbl6wNs+46ao=
+github.com/redelay/go-flowdsl/flowexec/storage-mongo v0.1.7/go.mod h1:HlJ9S3w3E4gFeXLfqzVk6wKQg82HI5z8hUy76hBtBCs=
 github.com/redelay/go-flowdsl/nodes/core v0.1.0 h1:xIgDIPw2cdOno8sGsqfNPXhRVa42ty9Gmr0OiVWKFpo=
 github.com/redelay/go-flowdsl/nodes/core v0.1.0/go.mod h1:B87aeD0K1dfQD6ptqYEWbl1sKKJuPvUWmpprqd1JJOI=
 github.com/redelay/go-framework v0.35.2 h1:olGMmBhj0MohmC9/w7IGoq5vjh1FoFcURofA3kg/cV4=

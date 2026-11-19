@@ -106,6 +106,23 @@ func (m *Module) Routes(r modules.Router) {
 			modules.Response(404, "Not found", modules.RedelayErrorResponse{}),
 		)
 
+		// Discarding a conversation. "New chat" in a client that offers
+		// one is a promise, and a button that only clears the client's
+		// own view while the server keeps the transcript is a false
+		// statement to the person who pressed it — so there has to be
+		// something it can call. Deletes the transcript AND the flow
+		// run history that holds the same sentences (see
+		// chats.Service.DeleteSession).
+		//
+		// Owner-scoped for an authenticated chat; an anonymous one is
+		// scoped by the session id, the same capability that reads it
+		// back above. 404 covers "not yours" as well as "not there".
+		g.Handle("DELETE", "/chats/me/{sessionID}", http.HandlerFunc(m.handleChatDelete),
+			modules.Summary("Delete a chat and its flow run history"),
+			modules.Response(204, "Deleted", nil),
+			modules.Response(404, "Not found", modules.RedelayErrorResponse{}),
+		)
+
 		// Handoff — customer asks for a human. Validated + dedup-guarded
 		// inside handoff.Service.
 		g.Handle("POST", "/handoff", http.HandlerFunc(m.handleHandoff),

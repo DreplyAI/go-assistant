@@ -39,7 +39,7 @@ func (m *Module) inspectPublishedVersion(ctx context.Context, flow *flowstore.Fl
 	if flow == nil || flow.PublishedVersionID == "" {
 		return 0, false
 	}
-	store := m.flowexec.Store()
+	store := m.flowStore()
 	v, err := store.GetVersion(ctx, flow.PublishedVersionID)
 	if err != nil || v == nil {
 		m.logger.Debug("assistant: inspect published version failed",

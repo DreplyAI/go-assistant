@@ -57,6 +57,8 @@ type Module struct {
 	cfg      Config
 	logger   *zap.Logger
 	flowexec *flowexecmod.Module
+	// storeForTest replaces flowexec's store in tests (see flowStore).
+	storeForTest flowstore.Store
 
 	// Persistence services — nil when the deployment has no DB.
 	// Handlers check for nil and degrade gracefully (no persistence,
@@ -322,11 +324,19 @@ func (m *Module) Configure(registry *modules.Registry) error {
 	return nil
 }
 
+// flowStore is the flowexec store; tests substitute one to stage races.
+func (m *Module) flowStore() flowstore.Store {
+	if m.storeForTest != nil {
+		return m.storeForTest
+	}
+	return m.flowexec.Store()
+}
+
 // ensureFlow idempotently creates + publishes the default flow if missing.
 // When force=true, a new version is saved and published even if the flow
 // already exists — used by the "reset to factory" endpoint.
 func (m *Module) ensureFlow(ctx context.Context, force bool) error {
-	store := m.flowexec.Store()
+	store := m.flowStore()
 
 	existing, err := store.GetFlow(ctx, m.cfg.FlowID)
 	if err != nil && !errors.Is(err, flowstore.ErrNotFound) {
@@ -342,11 +352,31 @@ func (m *Module) ensureFlow(ctx context.Context, force bool) error {
 			Description: "Default assistant flow — customize via flowexec API.",
 			Labels:      map[string]string{"owner": "assistant"},
 		})
-		if err != nil {
+		switch {
+		case errors.Is(err, flowstore.ErrAlreadyExists):
+			// Another process (a second binary or replica booting against the
+			// same database) created it between our read and our create. That
+			// process seeds it too; failing Startup here crashed the loser's
+			// first boot. Adopt the flow and take the existing-flow path.
+			existing, err = store.GetFlow(ctx, m.cfg.FlowID)
+			if err != nil {
+				return fmt.Errorf("assistant: get flow after a concurrent create: %w", err)
+			}
+			m.logger.Info("assistant: flow created concurrently by another process, adopting it",
+				zap.String("flowID", m.cfg.FlowID))
+		case err != nil:
 			return fmt.Errorf("assistant: create flow: %w", err)
+		default:
+			m.logger.Info("assistant: created flow", zap.String("flowID", m.cfg.FlowID))
 		}
-		m.logger.Info("assistant: created flow", zap.String("flowID", m.cfg.FlowID))
-	} else if !force {
+	}
+	if existing != nil && !force && existing.PublishedVersionID == "" {
+		// A flow with nothing published belongs to no one yet — typically a
+		// peer created it and has not seeded it (or died before it could).
+		// Seed it rather than leave the assistant answering 409 forever.
+		m.logger.Info("assistant: flow exists with nothing published, seeding it",
+			zap.String("flowID", m.cfg.FlowID))
+	} else if existing != nil && !force {
 		// Flow exists — decide whether to auto-upgrade. When the published
 		// version was written by THIS module (CreatedBy=assistant-module)
 		// and the embedded schemaVersion advanced past the stored one, save

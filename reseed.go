@@ -76,18 +76,20 @@ func (m *Module) reseedFromTemplate(ctx context.Context, name string) error {
 
 	// Ensure the flow exists — the reset endpoint must work even on
 	// fresh deployments before the first Startup seed.
-	store := m.flowexec.Store()
+	store := m.flowStore()
 	existing, err := store.GetFlow(ctx, m.cfg.FlowID)
 	if err != nil && !errors.Is(err, flowstore.ErrNotFound) {
 		return fmt.Errorf("assistant: get flow: %w", err)
 	}
 	if existing == nil {
+		// ErrAlreadyExists: a concurrent process created it first — the
+		// version saved below lands on that flow, which is what we want.
 		if _, err := store.CreateFlow(ctx, flowstore.CreateFlowInput{
 			ID:          m.cfg.FlowID,
 			Name:        "Project Assistant",
 			Description: "Assistant flow reseeded via /assistant/reset.",
 			Labels:      map[string]string{"owner": "assistant"},
-		}); err != nil {
+		}); err != nil && !errors.Is(err, flowstore.ErrAlreadyExists) {
 			return fmt.Errorf("assistant: create flow: %w", err)
 		}
 	}
